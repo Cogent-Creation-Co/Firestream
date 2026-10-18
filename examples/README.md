@@ -59,6 +59,16 @@ composing several charts rather than about one app across three runtimes.
 | [`odoo-k3s/`](./odoo-k3s) | Local k3s / k3d | Build → side-load images into containerd → helm → port-forward; inline credentials; `local-path` storage |
 | [`odoo-docker-compose/`](./odoo-docker-compose) | Docker Compose | No Kubernetes; reuses Firestream's generated compose stack; custom image with vendored addons |
 
+A separate Odoo example demonstrates a *different* customization —
+**extra Python packages merged into Odoo's own venv** (`config.odoo.pythonWorkspace.extend`),
+plus the production-shaped `odoo.conf` limits as typed chart options. Odoo
+imports addon dependencies in-process, so unlike Airflow's separate guest venv
+these land in the **primary** venv; a Nix-level lock diff guards the merge.
+
+| Example | Target | Highlights |
+|---------|--------|------------|
+| [`odoo-python-dependencies/`](./odoo-python-dependencies) | Local k3s / k3d | Consumer `python-workspace/` (committed `uv.lock`) merged into the `firestream-odoo:18.0` venv; lock-compatibility guard; `replace` recipe; `workers`/`limit_memory_*`/`list_db` chart knobs; side-load 2 images; inline credentials; `local-path` |
+
 **Airflow** — customization: a **custom DAG baked into the image** (the Airflow
 analogue of odoo's vendored addons, via `config.airflow.vendoredDags`).
 CeleryExecutor + bundled PostgreSQL & Redis.

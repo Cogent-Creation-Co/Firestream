@@ -93,3 +93,6 @@ src/templates/**/.turbo/
 src/templates/**/.sccache/
 src/templates/**/.cargo-nix/
 src/templates/**/dist/
+
+# Praxis issue tracker: keep the corpus, drop the derived cache
+.praxis/cache/*

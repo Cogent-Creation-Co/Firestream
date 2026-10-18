@@ -15,6 +15,14 @@
 #       overrides = import ./overrides.nix { inherit pkgs lib; };
 #     };
 #   in container.dockerImage
+#
+# Consumer-owned dependencies for the PRIMARY venv (`pythonWorkspace`):
+#   - replace = { src; overrides; }   consumer's pyproject.toml + uv.lock become
+#                                     the primary workspace root (module.nix is
+#                                     still loaded from `workspacePath`).
+#   - extend  = [ { src; overrides; } ] extra uv2nix workspaces merged into the
+#                                     ONE primary venv, guarded by a lock diff.
+# Separate venvs (`extraWorkspaces`) remain the tool for out-of-process guests.
 
 { pkgs
 , lib
@@ -25,6 +33,10 @@
 , pyproject-build-systems
 }:
 
+let
+  wsLib = import ./python-workspace-lib.nix { inherit lib; };
+  noop = _final: _prev: { };
+in
 {
   # Factory function for Python workspace containers
   mkPythonWorkspaceContainer = {
@@ -54,41 +66,60 @@
     # Each becomes its own baked venv at /opt/firestream/${name}/${w.name}-venv.
     extraWorkspaces ? [],
 
+    # Optional: consumer-owned dependencies for the PRIMARY venv. Shape
+    # (already resolved to attrsets by eval-container.nix):
+    #   { replace = null | { src; overrides; }; extend = [ { src; overrides; } ]; }
+    # `null` (default) leaves the primary build byte-identical.
+    pythonWorkspace ? null,
+
     # All other arguments are passed through to moduleArgs
     ...
   }@args:
   let
+    replace = if pythonWorkspace == null then null else (pythonWorkspace.replace or null);
+    extensions = if pythonWorkspace == null then [ ] else (pythonWorkspace.extend or [ ]);
+    primaryRoot = if replace != null then replace.src else workspacePath;
+
+    # ── requires-python guardrail (loud) ──────────────────────────────
+    # Fail fast with a legible eval error if the effective interpreter does
+    # not satisfy the workspace's declared project.requires-python, instead
+    # of surfacing later as a cryptic wheel-tag / silently-mismatched venv.
+    mkPythonGuard = root: python:
+      let
+        requiresPython =
+          (builtins.fromTOML (builtins.readFile (root + "/pyproject.toml")))
+            .project.requires-python or null;
+      in
+      if requiresPython == null then null
+      else let
+        conds = pyproject-nix.lib.pep440.parseVersionConds requiresPython;
+        ver = pyproject-nix.lib.pep440.parseVersion python.version;
+        ok = builtins.all
+          (c: pyproject-nix.lib.pep440.comparators.${c.op} ver c.version)
+          conds;
+      in if ok then null
+         else throw ''
+           python-workspace: interpreter python-${python.version} does not satisfy requires-python "${requiresPython}" declared in ${toString root}/pyproject.toml'';
+
+    loadLock = root: builtins.fromTOML (builtins.readFile (root + "/uv.lock"));
+
     # ── Workspace builder ─────────────────────────────────────────────
     # Loads a uv2nix workspace and resolves it TWICE:
     #   - wheel overlay  → runtime `pythonEnv` (mkVirtualEnv)
     #   - sdist overlay  → `pythonSourcePkgs` for license-compliance source
     #                      archiving / SBOM (mkVirtualEnv exposes no per-pkg .src)
     # It builds its OWN `pythonBase` so each workspace honors its own interpreter.
-    buildWorkspace = { workspacePath, overrides ? {}, python, envName }:
+    #
+    # `extensions` merges further workspaces into the SAME venv. With
+    # `extensions == []` the derivations equal a single-workspace build.
+    buildWorkspace = { workspacePath, overrides ? {}, python, envName, extensions ? [ ] }:
     let
       # Load workspace from container's uv.lock
       workspace = uv2nix.lib.workspace.loadWorkspace {
         workspaceRoot = workspacePath;
       };
 
-      # ── requires-python guardrail (loud) ────────────────────────────
-      # Fail fast with a legible eval error if the effective interpreter does
-      # not satisfy the workspace's declared project.requires-python, instead
-      # of surfacing later as a cryptic wheel-tag / silently-mismatched venv.
-      requiresPython =
-        (builtins.fromTOML (builtins.readFile (workspacePath + "/pyproject.toml")))
-          .project.requires-python or null;
-      pythonGuard =
-        if requiresPython == null then null
-        else let
-          conds = pyproject-nix.lib.pep440.parseVersionConds requiresPython;
-          ver = pyproject-nix.lib.pep440.parseVersion python.version;
-          ok = builtins.all
-            (c: pyproject-nix.lib.pep440.comparators.${c.op} ver c.version)
-            conds;
-        in if ok then null
-           else throw ''
-             python-workspace: interpreter python-${python.version} does not satisfy requires-python "${requiresPython}" declared in ${toString workspacePath}/pyproject.toml'';
+      pythonGuard = mkPythonGuard workspacePath python;
 
       # Create overlay preferring binary wheels
       overlay = workspace.mkPyprojectOverlay {
@@ -96,33 +127,82 @@
       };
 
       # Get container-specific overrides (default to empty)
-      wheelOverrides = overrides.wheelOverrides or (final: prev: {});
-      sourceOverrides = overrides.sourceOverrides or (final: prev: {});
+      wheelOverrides = overrides.wheelOverrides or noop;
+      sourceOverrides = overrides.sourceOverrides or noop;
 
       # Create base Python package set (per-workspace, honors its own interpreter)
       pythonBase = pkgs.callPackage pyproject-nix.build.packages {
         inherit python;
       };
 
+      # ── Extensions (pythonWorkspace.extend) ─────────────────────────
+      extLoaded = map (e: {
+        inherit (e) src;
+        label = toString e.src;
+        overrides = e.overrides or { };
+        workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = e.src; };
+        pythonGuard = mkPythonGuard e.src python;
+      }) extensions;
+
+      baseLock = loadLock workspacePath;
+      extLocks = map (e: e // { lock = loadLock e.src; }) extLoaded;
+
+      # Base-vs-extension, then extension-vs-extension pairwise.
+      lockGuards =
+        (map (e: wsLib.assertCompatibleLocks {
+          baseLabel = toString workspacePath;
+          inherit baseLock;
+          extLabel = e.label;
+          extLock = e.lock;
+        }) extLocks)
+        ++ lib.concatMap (i:
+          map (j: wsLib.assertCompatibleLocks {
+            baseLabel = (lib.elemAt extLocks i).label;
+            baseLock = (lib.elemAt extLocks i).lock;
+            extLabel = (lib.elemAt extLocks j).label;
+            extLock = (lib.elemAt extLocks j).lock;
+          }) (lib.range (i + 1) (lib.length extLocks - 1))
+        ) (lib.range 0 (lib.length extLocks - 2));
+
+      # deepSeq: a plain seq on the list would force only the spine, not the
+      # per-extension guards inside it.
+      allGuards = builtins.seq pythonGuard
+        (builtins.deepSeq (map (e: e.pythonGuard) extLoaded)
+          (builtins.all (g: g) lockGuards));
+
+      extPkgOverlays = pref: map (e: e.workspace.mkPyprojectOverlay { sourcePreference = pref; }) extLoaded;
+      extSourceOverrides = map (e: e.overrides.sourceOverrides or noop) extLoaded;
+      extWheelOverrides = map (e: e.overrides.wheelOverrides or noop) extLoaded;
+
       # Compose all overlays - ORDER MATTERS
       # 1. Build systems FIRST (provides build backends like setuptools, hatchling, etc.)
-      # 2. Workspace overlay second (provides package definitions from uv.lock)
+      # 2. Extension package overlays, then the BASE workspace overlay LAST.
+      #    NOTE: a package's build config comes from the overlay that defines
+      #    it. Base-last keeps Firestream's for every shared name; the lock
+      #    guard has already proven shared names share versions, so extensions
+      #    only ever contribute NEW packages.
       # 3. Source build overrides third (fixes for packages built from source)
       # 4. Wheel runtime overrides last (runtime library dependencies)
       pythonSet = pythonBase.overrideScope (
-        lib.composeManyExtensions [
-          pyproject-build-systems.overlays.default
-          overlay
-          sourceOverrides
-          wheelOverrides
-        ]
+        lib.composeManyExtensions (
+          [ pyproject-build-systems.overlays.default ]
+          ++ extPkgOverlays "wheel"
+          ++ [ overlay sourceOverrides ]
+          ++ extSourceOverrides
+          ++ [ wheelOverrides ]
+          ++ extWheelOverrides
+        )
       );
 
+      # deps.default is keyed by workspace MEMBER name; the union of the maps
+      # is the root set of the single merged venv.
+      depsMap = lib.foldl' (acc: e: acc // e.workspace.deps.default) workspace.deps.default extLoaded;
+
       # Create virtual environment with all dependencies.
-      # `seq` on the guard forces the requires-python check whenever the runtime
-      # env is realised, without altering the derivation (drvPath unchanged).
-      pythonEnv = builtins.seq pythonGuard
-        (pythonSet.mkVirtualEnv envName workspace.deps.default);
+      # `seq` on the guards forces the requires-python and lock checks whenever
+      # the runtime env is realised, without altering the derivation (drvPath unchanged).
+      pythonEnv = builtins.seq allGuards
+        (pythonSet.mkVirtualEnv envName depsMap);
 
       # ── Source archiving support ────────────────────────────────────
       # Parallel resolution with sdist preference for source code archiving.
@@ -132,17 +212,18 @@
       };
 
       pythonSetSdist = pythonBase.overrideScope (
-        lib.composeManyExtensions [
-          pyproject-build-systems.overlays.default
-          sdistOverlay
-          sourceOverrides
-        ]
+        lib.composeManyExtensions (
+          [ pyproject-build-systems.overlays.default ]
+          ++ extPkgOverlays "sdist"
+          ++ [ sdistOverlay sourceOverrides ]
+          ++ extSourceOverrides
+        )
       );
 
       # Extract source-resolved packages for fleet-level source archiving.
-      # workspace.deps.default has the dependency names; look each up in the sdist set.
+      # depsMap has the member names; look each up in the sdist set.
       pythonSourcePkgs = let
-        depNames = builtins.attrNames (workspace.deps.default);
+        depNames = builtins.attrNames depsMap;
       in lib.filter (p: p != null) (map (name:
         let pkg = builtins.tryEval (
           if pythonSetSdist ? ${name} then pythonSetSdist.${name} else null
@@ -154,9 +235,10 @@
     };
 
     # Build the PRIMARY workspace. Outputs are byte-identical to the pre-factory
-    # inline form when extraWorkspaces == [].
+    # inline form when extraWorkspaces == [] and pythonWorkspace == null.
     primary = buildWorkspace {
-      inherit workspacePath overrides python;
+      workspacePath = primaryRoot;
+      inherit overrides python extensions;
       envName = "${name}-env";
     };
     inherit (primary) pythonEnv pythonSet workspace pythonSourcePkgs;
@@ -178,7 +260,7 @@
     # Filter out factory-specific args, keep rest for moduleArgs passthrough
     extraArgs = builtins.removeAttrs args [
       "workspacePath" "name" "version" "python" "overrides" "moduleArgs"
-      "extraWorkspaces"
+      "extraWorkspaces" "pythonWorkspace"
     ];
 
     # Guest venvs for module.nix to materialize. Passed ONLY when there is at
@@ -203,7 +285,8 @@
     # 3. Explicit moduleArgs
     allModuleArgs = baseModuleArgs // extraArgs // moduleArgs;
 
-    # Import container module with computed arguments
+    # Import container module with computed arguments. module.nix ALWAYS comes
+    # from Firestream's workspacePath, never from a `replace` root.
     module = import (workspacePath + "/module.nix") allModuleArgs;
 
   in module // {

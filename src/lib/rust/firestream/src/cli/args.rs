@@ -400,13 +400,14 @@ pub enum HelmCommand {
         dry_run: bool,
     },
 
-    /// Run an on-demand PostgreSQL logical backup now.
+    /// Run an on-demand backup of a chart now.
     ///
-    /// Creates a one-shot Job from the chart's `<release>-pgdumpall` CronJob
-    /// (which streams a `pg_dumpall` dump straight into SeaweedFS S3) and waits
-    /// for it to complete.
+    /// Creates a one-shot Job from the chart's backup CronJob (named by the
+    /// manifest's `backup.cronJobSuffix`, e.g. `<release>-pgdumpall` for
+    /// postgresql or `<release>-odoodump` for odoo) and waits for it to
+    /// complete. The Job uploads the dump to SeaweedFS S3.
     Backup {
-        /// Chart name as registered in `index.json` (e.g. `postgresql`).
+        /// Chart name as registered in `index.json` (e.g. `postgresql`, `odoo`).
         chart: String,
 
         /// Kubernetes namespace override. Falls back to the manifest's
@@ -415,16 +416,20 @@ pub enum HelmCommand {
         namespace: Option<String>,
     },
 
-    /// Restore a PostgreSQL logical backup from SeaweedFS S3.
+    /// Restore a chart's backup from SeaweedFS S3.
     ///
-    /// Renders a one-shot Job that streams the chosen object out of SeaweedFS,
-    /// gunzips it, and pipes it into `psql` against the running primary.
+    /// Renders a one-shot Job from the chart's backup CronJob that pulls the
+    /// chosen object out of S3 and loads it. PostgreSQL streams the dump into
+    /// the running primary. Odoo stops the Deployment first (the restore
+    /// replaces the database and the filestore), runs the Job, then scales
+    /// the Deployment back and waits for it to be ready.
     Restore {
-        /// Chart name as registered in `index.json` (e.g. `postgresql`).
+        /// Chart name as registered in `index.json` (e.g. `postgresql`, `odoo`).
         chart: String,
 
         /// S3 object key (relative to the backup bucket) to restore from,
-        /// e.g. `pg-backups/pg_dumpall-2026-06-28-12-00-00.sql.gz`.
+        /// e.g. `pg-backups/pg_dumpall-2026-06-28-12-00-00.sql.gz` or
+        /// `odoo-backups/odoo-firestream_odoo-2026-06-28-12-00-00.tar.gz`.
         #[arg(long)]
         from: String,
 

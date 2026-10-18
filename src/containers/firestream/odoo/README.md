@@ -204,7 +204,15 @@ docker run -d --name odoo \
 | `ODOO_SKIP_BOOTSTRAP`          | Whether to perform initial bootstrapping for the application.                                                              | `no`                                                   |
 | `ODOO_SKIP_MODULES_UPDATE`     | Whether to perform initial update of the plugins installed.                                                                | `no`                                                   |
 | `ODOO_LOAD_DEMO_DATA`          | Whether to load demo data. First database init only: Odoo records the decision per-database, so flipping this later has no effect (and modules installed later into a no-demo DB skip their demo data too). To reseed, drop the database and data volumes and boot fresh. | `no`                                                   |
-| `ODOO_LIST_DB`                 | Whether the database selector is available.                                                                                | `no`                                                   |
+| `ODOO_LIST_DB`                 | Whether the database manager and selector are available (`list_db`). Keep `no` in production.                             | `no`                                                   |
+| `ODOO_WORKERS`                 | HTTP worker processes (`workers`). `0` = threaded mode, gevent port not bound.                                             | `0`                                                    |
+| `ODOO_LIMIT_TIME_CPU`          | Max CPU seconds per request (`limit_time_cpu`).                                                                            | `90`                                                   |
+| `ODOO_LIMIT_TIME_REAL`         | Max wall-clock seconds per request (`limit_time_real`).                                                                    | `150`                                                  |
+| `ODOO_LIMIT_TIME_REAL_CRON`    | Max wall-clock seconds per cron job (`limit_time_real_cron`); `-1` = same as `limit_time_real`.                            | `-1`                                                   |
+| `ODOO_LIMIT_MEMORY_SOFT`       | Soft per-worker memory limit in bytes (`limit_memory_soft`).                                                               | `2147483648`                                           |
+| `ODOO_LIMIT_MEMORY_HARD`       | Hard per-worker memory limit in bytes (`limit_memory_hard`).                                                               | `2684354560`                                           |
+| `ODOO_LIMIT_REQUEST`           | Requests a worker serves before recycling (`limit_request`).                                                               | `65536`                                                |
+| `ODOO_MAX_CRON_THREADS`        | Threads dedicated to cron jobs (`max_cron_threads`).                                                                       | `1`                                                    |
 | `ODOO_EMAIL`                   | Odoo user e-mail address.                                                                                                  | `user@example.com`                                     |
 | `ODOO_PASSWORD`                | Odoo user password.                                                                                                        | `bitnami`                                              |
 | `ODOO_SMTP_HOST`               | Odoo SMTP server host.                                                                                                     | `nil`                                                  |
@@ -455,54 +463,70 @@ You can configure the containers [logging driver](https://docs.docker.com/engine
 
 ## Maintenance
 
-### Backing up your container
+### Dump and restore
 
-To backup your data, configuration and logs, follow these simple steps:
+The image ships dump and restore helpers in `/opt/firestream/scripts/libhelpersodoo.sh`
+(source: `scripts/helpers.sh`). One archive holds everything a restore needs:
 
-#### Step 1: Stop the currently running container
+| Member          | Content                                                             |
+|-----------------|---------------------------------------------------------------------|
+| `manifest.json` | database name, Odoo version, PostgreSQL version, installed modules  |
+| `dump.sql`      | `pg_dump --format=plain --clean --if-exists --no-owner` of the DB   |
+| `filestore/`    | the attachment store from `$ODOO_DATA_DIR/filestore/<db>`          |
+
+These are the same members as Odoo's own zip backup, so the archive can be
+repackaged for the web database manager. The helpers read the `ODOO_DATABASE_*`
+connection env (including `ODOO_DATABASE_PASSWORD_FILE`) and `ODOO_DATA_DIR`.
+
+| Function                   | Purpose                                                         |
+|----------------------------|-----------------------------------------------------------------|
+| `odoo_dump <dir>`          | Write `<dir>/odoo-<db>-<timestamp>.tar.gz`; prints the path last |
+| `odoo_restore <archive>`   | Replace the database and the filestore from an archive          |
+| `odoo_backup_s3`           | `odoo_dump` + upload to `s3://$S3_BACKUP_BUCKET/$S3_BACKUP_PREFIX/` |
+| `odoo_restore_s3`          | Download `$S3_BACKUP_KEY` and `odoo_restore` it                  |
+
+`odoo_restore` refuses to run while an `odoo-bin` process is alive, because a
+live restore corrupts sessions and asset bundles. Stop Odoo first, or set
+`ODOO_RESTORE_FORCE=yes`. It also refuses an archive from a different Odoo
+major version unless `ODOO_RESTORE_FORCE=yes`. After a restore it removes the
+sessions directory and writes the `.odoo_initialized` marker, so the next boot
+runs a module update instead of a fresh install.
+
+#### Docker
+
+Dump while Odoo runs (the dump is read-only):
 
 ```console
-docker stop odoo
+docker compose -p firestream-odoo exec odoo bash -c \
+  'source /opt/firestream/scripts/libhelpersodoo.sh && odoo_dump /firestream/odoo/backups'
 ```
 
-Or using Docker Compose:
+Restore with Odoo stopped. The container entrypoint is replaced so the server
+does not start, and the data volume stays mounted:
 
 ```console
-docker-compose stop odoo
+docker compose -p firestream-odoo stop odoo
+docker compose -p firestream-odoo run --rm --no-deps --entrypoint bash odoo -c \
+  'source /opt/firestream/scripts/libhelpersodoo.sh && odoo_restore /firestream/odoo/backups/odoo-firestream_odoo-<timestamp>.tar.gz'
+docker compose -p firestream-odoo start odoo
 ```
 
-#### Step 2: Run the backup command
+#### Kubernetes
 
-We need to mount two volumes in a container we will use to create the backup: a directory on your host to store the backup in, and the volumes from the container we just stopped so we can access the data.
+The chart renders a backup CronJob when `backup.enabled=true` (see
+`src/charts/firestream/odoo/nix/options/backup.nix`; the target defaults to the
+in-cluster SeaweedFS store under `odoo-backups/`). The CLI drives it:
 
 ```console
-docker run --rm -v /path/to/odoo-backups:/backups --volumes-from odoo busybox \
-  cp -a /bitnami/odoo /backups/latest
+firestream helm backup odoo
+firestream helm restore odoo --from odoo-backups/odoo-firestream_odoo-<timestamp>.tar.gz
 ```
 
-### Restoring a backup
-
-Restoring a backup is as simple as mounting the backup as volumes in the containers.
-
-For the PostgreSQL database container:
-
-```diff
- $ docker run -d --name postgresql \
-   ...
--  --volume /path/to/postgresql-persistence:/bitnami/postgresql \
-+  --volume /path/to/postgresql-backups/latest:/bitnami/postgresql \
-   bitnami/postgresql:latest
-```
-
-For the Odoo container:
-
-```diff
- $ docker run -d --name odoo \
-   ...
--  --volume /path/to/odoo-persistence:/bitnami/odoo \
-+  --volume /path/to/odoo-backups/latest:/bitnami/odoo \
-   bitnami/odoo:latest
-```
+`restore` scales the Odoo Deployment to zero, waits for the pod to go away,
+runs a one-shot Job that inherits the CronJob's pod spec (image, PVC, database
+Secret, S3 credentials) and calls `odoo_restore_s3`, then scales the Deployment
+back and waits for the rollout. The Deployment is scaled back even when the Job
+fails.
 
 ### Upgrade this image
 

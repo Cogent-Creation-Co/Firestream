@@ -1257,6 +1257,15 @@ test-e2e-k8s-pg-backup:
 	FIRESTREAM_E2E_K8S_STACKS=pg-backup \
 	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture e2e_k8s_pg_backup
 
+# Odoo backup/restore round-trip (multi-chart: seaweedfs + odoo). Same shape
+# as pg-backup: explicit target, `odoo-backup` filter token, seaweedfs first,
+# then odoo with backup.enabled=true. The restore scales the Odoo Deployment
+# to zero and back, so this also covers the quiesce path of the CLI.
+.PHONY: test-e2e-k8s-odoo-backup
+test-e2e-k8s-odoo-backup:
+	FIRESTREAM_E2E_K8S_STACKS=odoo-backup \
+	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture e2e_k8s_odoo_backup
+
 # ==============================================================================
 # App lifecycle CLI (`firestream app ...`)
 #

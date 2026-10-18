@@ -44,7 +44,7 @@ pub mod spec;
 
 pub use reader::Charts;
 pub use spec::{
-    BaseChartEntry, BreakingVersion, Bundle, ChartIndexEntry, ChartManifest, Deployment,
+    Backup, BaseChartEntry, BreakingVersion, Bundle, ChartIndexEntry, ChartManifest, Deployment,
     ImageSlot, Index, Lifecycle, Provenance, Release,
 };
 

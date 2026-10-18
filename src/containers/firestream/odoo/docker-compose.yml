@@ -25,9 +25,9 @@ services:
       - '8069:8069'
       - '8072:8072'
     volumes:
-      - 'odoo_data:/opt/odoo/data'
-      - 'odoo_addons:/opt/odoo/addons'
-      - 'odoo_config:/opt/odoo/conf'
+      - 'odoo_data:/firestream/odoo'
+      - 'odoo_addons:/opt/firestream/odoo/addons'
+      - 'odoo_config:/opt/firestream/odoo/conf'
     depends_on:
       postgresql:
         condition: service_healthy

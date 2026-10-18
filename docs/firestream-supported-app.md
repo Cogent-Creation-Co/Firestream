@@ -284,6 +284,19 @@ cheap), Tier B pins `apache-airflow==3.0.3` for full context/XCom fidelity at th
 re-coupling to Airflow's closure. `requires-python` must admit `python312`, or the factory
 throws. Copy-and-adapt fixture: `src/templates/airflow_dags_workspace/`.
 
+When the app imports the packages **in-process** (Odoo addons, Superset plugins, JupyterHub
+authenticators), a separate venv is invisible to it. The generic `options.<app>.pythonWorkspace`
+option on `eval-container.nix` targets the **primary** venv instead, in two modes. `extend` takes a
+list of consumer-owned uv2nix workspaces that declare only *new* packages; the factory composes
+their package overlays underneath the app's own, builds one venv from the union of workspace
+members, and first diffs the `uv.lock` files in Nix — a shared package at a different version, or
+a member named like the app's project, is a hard error naming the offenders. `replace` swaps the
+workspace root for the consumer's (copy the app's `pyproject.toml`, edit, `uv lock`); `module.nix`
+still comes from Firestream and Firestream's `overrides.nix` composes underneath the consumer's
+unless `inheritOverrides = false`. Unset, both modes leave every image derivation unchanged, and
+`checks.firestream-python-workspace-seam` asserts that. Fixture:
+`src/templates/odoo_python_workspace/`; example: `examples/odoo-python-dependencies/`.
+
 ---
 
 ## 8. Authoring a new Supported App

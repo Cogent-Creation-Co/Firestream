@@ -16,17 +16,69 @@
 # check cannot see it — the flake source is the git tree. That guard lives in
 # bin/build/check-embedded-sync.sh / `make check-embedded-sync`.
 { inputs, ... }: {
-  perSystem = { pkgs, system, lib, ... }:
+  perSystem = { pkgs, system, lib, config, ... }:
     let
       isLinux = pkgs.stdenv.hostPlatform.isLinux;
       tests = import ../../bin/nix/firestream/tests {
         inherit pkgs system;
         inherit (inputs) fenix crane;
       };
+
+      # ── pythonWorkspace seam (eval-only) ─────────────────────────────────
+      # Proves two properties of options.<app>.pythonWorkspace end-to-end
+      # through the consumer `images.<app>.eval` API:
+      #   1. inert-on-null: an explicitly empty pythonWorkspace yields the same
+      #      pythonEnv AND dockerImage derivation as the plain eval, on odoo-18
+      #      (the app that motivated the seam) and on airflow (a sibling that
+      #      never sets it);
+      #   2. extend works: merging the fixture workspace adds pycairo to the
+      #      primary package set and changes the venv derivation.
+      # All comparisons are drvPath string equalities decided at eval time; the
+      # runCommand only records the verdict, so nothing heavy is built.
+      pythonWorkspaceSeam =
+        let
+          empty = { ... }: { config = { }; };
+          fixture = ../../src/templates/odoo_python_workspace;
+          probe = app: setOpt:
+            let
+              img = config.firestreamImages.${app};
+              plain = img.eval empty;
+              explicit = img.eval (setOpt { replace = null; extend = [ ]; });
+            in {
+              envSame = plain.module.pythonEnv.drvPath == explicit.module.pythonEnv.drvPath;
+              imageSame = plain.dockerImage.drvPath == explicit.dockerImage.drvPath;
+            };
+          odoo = probe "odoo-18" (v: { ... }: { config.odoo.pythonWorkspace = v; });
+          airflow = probe "airflow" (v: { ... }: { config.airflow.pythonWorkspace = v; });
+          extended = config.firestreamImages.odoo-18.eval ({ ... }: {
+            config.odoo.pythonWorkspace.extend = [ { src = fixture; } ];
+          });
+          stock = config.firestreamImages.odoo-18.eval empty;
+          results = {
+            odooEnvInert = odoo.envSame;
+            odooImageInert = odoo.imageSame;
+            airflowEnvInert = airflow.envSame;
+            airflowImageInert = airflow.imageSame;
+            extendAddsPycairo = extended.module.pythonSet ? pycairo;
+            extendKeepsBase = extended.module.pythonSet ? plaid-python;
+            extendChangesEnv = extended.module.pythonEnv.drvPath != stock.module.pythonEnv.drvPath;
+          };
+          failed = lib.filterAttrs (_: ok: !ok) results;
+        in
+        pkgs.runCommand "firestream-python-workspace-seam" { } (
+          if failed == { } then ''
+            echo "PASS: pythonWorkspace seam (${toString (builtins.length (builtins.attrNames results))} assertions)"
+            touch $out
+          '' else ''
+            echo "FAIL: pythonWorkspace seam: ${lib.concatStringsSep ", " (builtins.attrNames failed)}"
+            exit 1
+          ''
+        );
     in
     {
       checks = lib.optionalAttrs isLinux {
         firestream-tests = tests.all;
+        firestream-python-workspace-seam = pythonWorkspaceSeam;
 
         # Individual test modules (for granular testing)
         firestream-log-tests = tests.logTests;
@@ -42,6 +94,7 @@
         firestream-container-tests = tests.containerTests;
         firestream-postgresql-env-alias-tests = tests.postgresqlEnvAliasTests;
         firestream-seaweedfs-chart-values-tests = tests.seaweedfsChartValuesTests;
+        firestream-python-workspace-lib-tests = tests.pythonWorkspaceLibTests;
       };
     };
 }

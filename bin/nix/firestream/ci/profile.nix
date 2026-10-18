@@ -150,9 +150,10 @@ let
   ];
 
   # Canonical k8s charts, from `firestreamStacks.dev` / the charts documented in
-  # CLAUDE.md, plus `pg-backup` — the multi-chart backup/restore round-trip
-  # which has its own explicit makefile target (`test-e2e-k8s-pg-backup` wins
-  # over the `test-e2e-k8s-%` pattern rule) and therefore its own phase.
+  # CLAUDE.md, plus `pg-backup` and `odoo-backup` — the multi-chart
+  # backup/restore round-trips, each with its own explicit makefile target
+  # (`test-e2e-k8s-pg-backup` wins over the `test-e2e-k8s-%` pattern rule)
+  # and therefore its own phase.
   #
   # `cloudflared` is ABSENT BY DESIGN, not by omission. Its only health signal
   # is /ready, which answers "have I registered with the Cloudflare edge?" — so
@@ -173,6 +174,7 @@ let
     "odoo"
     "nginx"
     "pg-backup"
+    "odoo-backup"
   ];
 
   # One link of the chain: `{ name; target; }`. `target` is a makefile target

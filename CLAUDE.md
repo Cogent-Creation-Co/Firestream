@@ -263,6 +263,48 @@ boundary via two tiers:
 Copy-and-adapt fixture (a working example workspace + DAG showing both shapes):
 `src/templates/airflow_dags_workspace/`.
 
+#### In-process Python dependencies: `options.<app>.pythonWorkspace`
+
+`dagWorkspace`/`extraWorkspaces` build a **separate** venv, which only helps a guest that runs
+across a process boundary. An app that imports the packages **itself** (Odoo addons, Superset
+plugins, JupyterHub authenticators) needs them in the **primary** venv. The generic
+`options.<app>.pythonWorkspace` option (`bin/nix/firestream/containers/eval-container.nix`) does
+that for every python-workspace container; no per-app `module.nix` change is needed because the
+module receives a finished `pythonEnv`.
+
+- **`extend = [ { src; overrides ? null; } ]`** — consumer uv2nix workspaces declaring only *new*
+  packages. The factory (`python-workspace.nix`) composes extension package overlays **before** the
+  base overlay (base-last keeps Firestream's per-package build config), builds **one** venv from
+  the union of `deps.default` member maps, and first runs `assertCompatibleLocks`
+  (`python-workspace-lib.nix`): any shared package at a different version, or a member name
+  colliding with the base project, throws with the package names and both versions.
+  pyproject.nix itself performs no version validation, so this guard is load-bearing — never
+  downgrade it to a warning.
+- **`replace = { src; overrides ? null; inheritOverrides ? true; }`** — the consumer's
+  `pyproject.toml` + `uv.lock` become the primary workspace root (copy the app's, edit,
+  `uv lock`). `module.nix` still loads from Firestream's `workspacePath`. Firestream's
+  `overrides.nix` (system-library build inputs) composes underneath the consumer's.
+- Both unset ⇒ the factory call is textually identical to today; `checks.firestream-python-workspace-seam`
+  asserts `pythonEnv`/`dockerImage` drvPath equality on odoo-18 and airflow, and that the fixture
+  extends odoo-18 with `pycairo`. Pure lock-diff cases: `checks.firestream-python-workspace-lib-tests`.
+- `requires-python` of every root must admit the container's interpreter. The pinned uv2nix does
+  NOT honour `[tool.uv.extra-build-dependencies]`; an sdist-only package the extension introduces
+  gets its build backend in the extension's `overrides.nix` via `final.resolveBuildSystem`
+  (see the fixture's `pycairo` entry).
+- Fixture: `src/templates/odoo_python_workspace/` (pycairo, rlPyCairo, freetype-py; deliberately
+  not `plaid-python`, which the odoo/18 lock already pins). Example:
+  `examples/odoo-python-dependencies/`.
+
+#### Odoo runtime limits
+
+`src/containers/firestream/odoo/options.nix` types every `odoo.conf` limit (`workers`,
+`limitTimeCpu`, `limitTimeReal`, `limitTimeRealCron`, `limitMemorySoft`, `limitMemoryHard`,
+`limitRequest`, `maxCronThreads`, `listDb`) and bakes them as `ODOO_*` env; defaults equal Odoo's
+own. The odoo.conf template lives in `module.nix` and is rendered by **two** generators
+(`activateFn` and `scripts/config.sh`) that must stay in step. The chart mirrors them as nullable
+typed options in `src/charts/firestream/odoo/nix/options/app.nix`; `templates/deployment.yaml`
+emits each env var only when set, so the stock render is unchanged (`odoo-render-fidelity`).
+
 ## Data Stack Technologies
 
 ### Storage & Catalog
@@ -328,6 +370,7 @@ The flake is the source of truth for helm. Each chart at `src/charts/firestream/
 - Charts with typed overlays in `firestreamCharts`: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset`, `odoo`, `seaweedfs`, `nextjs`, `nginx`, `cloudflared`.
 - **Two stacks.** `firestreamStacks.dev` is the local data platform (everything above except `cloudflared`, with `nginx` last). `firestreamStacks.edge` is `[ nginx cloudflared ]` — separate because cloudflared's `TUNNEL_TOKEN` secretKeyRef is deliberately non-optional and it deploys `atomic`/`wait`/5m, so on a cluster with no Cloudflare tunnel provisioned it blocks and then rolls back. A local data platform has no business dialling the Cloudflare edge.
 - **`cloudflared` is a chart-only app**: no `src/containers/firestream/cloudflared/`, no `firestreamImages.cloudflared`, no compose output. It runs Cloudflare's own image, registered through the `componentPath = [ ]` catalogue-only mode of `_meta.containerRefs` (manifest records it, no values overlay). See `docs/firestream-supported-app.md` §1. The `cloudflared-render-fidelity` check asserts the manifest's triple matches what the chart renders — nothing else ties the two copies together.
+- **Backup is a manifest contract.** `_meta.backup = { cronJobSuffix; quiesceDeployment; }` (null by default) is emitted as `backup` in `chart-manifest.json` (`firestream_charts::Backup`). `firestream helm backup|restore <chart>` finds the CronJob as `<bitnami fullname>-<cronJobSuffix>` and refuses charts without the contract. postgresql sets `pgdumpall` (restore streams into the running primary); odoo sets `odoodump` with `quiesceDeployment = true`, so `restore` scales the `<fullname>` Deployment to zero, waits for its pods to go, runs the Job, and scales back (`restore_from_backup` in `cli/commands.rs`, shared with the e2e). Odoo's CronJob is not a chart template: `nix/flake-modules/charts/odoo.nix` appends a templated YAML string to `extraDeploy` guarded by `.Values.backup.enabled`, so `--set backup.enabled=true` works and the stock render is unchanged. The archive format (`manifest.json` + `dump.sql` + `filestore/`) lives in the image (`src/containers/firestream/odoo/scripts/helpers.sh`: `odoo_dump`, `odoo_restore`, `odoo_backup_s3`, `odoo_restore_s3`); the CLI only names the entry point per chart in `restore_command`.
 - **Namespace lifecycle is an option.** `_meta.createNamespace` (default `true`) drives BOTH `--create-namespace` on the bundle's `bin/deploy` and `release.createNamespace` in `chart-manifest.json` (which `helm_lifecycle/executor.rs` reads), so the shell path and the Rust path cannot disagree. Set it `false` when the deploying layer owns the namespace — e.g. a Pulumi stack that also attaches the ResourceQuota, LimitRange, NetworkPolicy and Workload Identity ServiceAccount.
 - **SeaweedFS is the exception to the Bitnami pattern.** It is a non-Bitnami, Apache-2.0 chart (forked from upstream `seaweedfs/seaweedfs`) whose pods invoke the `weed` binary directly via a `command:` block — so it uses NONE of the Bitnami-compat machinery: no `perContainerHelpers`, no `libhelpers<chart>.sh` emission, no `extraEnvVars` path-remaps, no `firestreamPathOverrides`, and no `global.security.allowInsecureImages` guard. The container is simply "`weed` on PATH". Image injection still uses the canonical `_meta.containerRefs` seam (`componentPath = [ "image" ]` → `.Values.image.{registry,repository,tag}`). SeaweedFS is the **default local S3 object store**: it is deployed FIRST in `firestreamStacks.dev` (object store up before consumers), runs all-in-one single-pod (`weed server -master -volume -filer -s3`) with S3 on 8333, auth on, default bucket `firestream`, creds `firestream`/`firestream-secret`. Its `S3_LOCAL_*` env (`S3_LOCAL_ENDPOINT_URL`, `S3_LOCAL_ACCESS_KEY_ID`, `S3_LOCAL_SECRET_ACCESS_KEY`, `S3_LOCAL_BUCKET_NAME`, `S3_LOCAL_DEFAULT_REGION`) is injected into the spark and airflow charts so Spark/`etl_lib` consume it out of the box (data-driven; no Rust/Python change). Chart data is `emptyDir` by default (ephemeral — fine for dev; a PVC toggle is a production follow-on).
 
@@ -374,7 +417,7 @@ The `firestream-e2e-k8s` crate (`src/lib/rust/firestream-e2e-k8s/`) provides per
 
 **Run via make**:
 - `make test-e2e-k8s` — full 10-chart sweep, serialized, fresh cluster per chart.
-- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs/nginx). No `cloudflared` arm: the connector reports Ready only once it registers with the Cloudflare edge, so it cannot come up in a hermetic cluster.
+- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs/nginx). `make test-e2e-k8s-pg-backup` and `make test-e2e-k8s-odoo-backup` are the two multi-chart backup/restore round-trips (seaweedfs + the app). No `cloudflared` arm: the connector reports Ready only once it registers with the Cloudflare edge, so it cannot come up in a hermetic cluster.
 
 **Env contract** (defaults in parens):
 - `FIRESTREAM_E2E_K8S_STACKS=all|csv` — subset filter (canonical 10)
@@ -397,7 +440,7 @@ make ci-e2e             # run it — HOURS, 11 k3d clusters, 8 compose stacks
 FIRESTREAM_E2E_STRICT=1 FIRESTREAM_E2E_K8S_STRICT=1 make ci-e2e   # unattended
 ```
 
-**Shape.** `bin/nix/firestream/ci/profile.nix` declares 19 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×11 (the canonical 10 plus `pg-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
+**Shape.** `bin/nix/firestream/ci/profile.nix` declares 20 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×12 (the canonical 10 plus `pg-backup` and `odoo-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
 
 **Why chained phases and not parallel tasks in one phase.** `firestream_ci::pipeline::Pipeline::run` fans a phase's tasks out with `join_all` and **no concurrency cap**. Both harnesses hold a process-wide mutex (`harness_lock()` / `e2e_lock()`) precisely because they create real k3d clusters and bind host ports; k3d name/port collisions are already engineered away (random cluster suffix, `127.0.0.1` API bind, `pick_ephemeral_port()`), so N concurrent runs would not *collide* — they would just be N k3s servers plus N full data stacks on one machine. So the serialisation is done at profile level: one task per phase, phases chained through `dependsOn`. Phases run strictly one at a time.
 
@@ -475,7 +518,7 @@ design:
 | `1` | `Failed` — a **Required** task failed | **fails the job** |
 | `2` | `PartiallyPassed` — every Required passed, ≥1 **Advisory** failed | `::warning::` + job summary, **does not fail** |
 
-Exit 2 is what lets slow or flaky work (`tidy`, `attest`, and the 18 `e2e-*`
+Exit 2 is what lets slow or flaky work (`tidy`, `attest`, and the 20 `e2e-*`
 phases) live in the pipeline without blocking merges.
 
 **"Continuous but non-blocking" vs. "hosted runners can't do this".** Both are

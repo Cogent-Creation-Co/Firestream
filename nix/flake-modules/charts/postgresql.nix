@@ -109,6 +109,10 @@
             { name = "HOME";                value = "/tmp"; }
           ];
         in {
+          # Read by `firestream helm backup|restore` to find the CronJob
+          # (`<fullname>-pgdumpall`). The restore streams into the running
+          # primary, so no Deployment quiesce.
+          config.postgresql._meta.backup = { cronJobSuffix = "pgdumpall"; };
           config.postgresql.backup = {
             enabled = lib.mkDefault false;   # opt-in; consumer/production flips it on
             cronjob = {

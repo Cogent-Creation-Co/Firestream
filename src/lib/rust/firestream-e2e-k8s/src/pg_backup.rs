@@ -36,7 +36,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
-use firestream::cli::commands::build_pg_restore_job_json;
+use firestream::cli::commands::{build_restore_job_json, restore_command};
 use firestream_e2e_core::exec::Exec;
 use firestream_e2e_core::k8s::exec::KubectlExec;
 use firestream_e2e_core::k8s::{cluster, probes, readiness};
@@ -214,7 +214,8 @@ pub fn run_pg_backup_roundtrip() {
         .block_on(kubectl.get_resource_json("cronjob", &cronjob, ns))
         .unwrap_or_else(|e| panic!("[e2e-k8s:{}] get cronjob `{}` json: {}", FILTER, cronjob, e));
     let restore_job = k8s_name_trunc(format!("{}-pgrestore-{}", fullname, short_id()));
-    let job_manifest = build_pg_restore_job_json(&cronjob_json, &restore_job, ns, &from)
+    let job_manifest =
+        build_restore_job_json(&cronjob_json, &restore_job, ns, &from, &restore_command(CHART_PG))
         .unwrap_or_else(|e| panic!("[e2e-k8s:{}] build restore job manifest: {}", FILTER, e));
     rt.block_on(kubectl.apply_yaml(&job_manifest, Some(ns)))
         .unwrap_or_else(|e| panic!("[e2e-k8s:{}] apply restore job: {}", FILTER, e));
@@ -461,7 +462,7 @@ mod tests {
     #[test]
     fn restore_job_inherits_via_shared_builder() {
         // The restore manifest is built by the shared
-        // `firestream::cli::commands::build_pg_restore_job_json` (single source
+        // `firestream::cli::commands::build_restore_job_json` (single source
         // of truth with the CLI). Smoke-test the e2e's wiring of it here; the
         // exhaustive field-inheritance contract is pinned by that crate's own
         // unit tests.
@@ -477,11 +478,12 @@ mod tests {
                 "volumes": []
             }}}}}
         }"#;
-        let out = build_pg_restore_job_json(
+        let out = build_restore_job_json(
             cronjob_json,
             "postgresql-pgrestore-abc",
             "postgresql",
             "pg-backups/pg_dumpall-2026-01-01-00-00-00.sql.gz",
+            &restore_command("postgresql"),
         )
         .expect("build restore job");
         assert!(out.contains("\"kind\": \"Job\""));
