@@ -72,6 +72,17 @@ let
       };
     };
   };
+
+  # Immediate child dirs of `dir` that carry an Odoo manifest — the same
+  # discovery rule vendor-addons.nix applies at build time, evaluated here so
+  # `installModules` can default to "everything under localAddons".
+  discoverModules = dirs: lib.unique (lib.concatMap
+    (dir: lib.attrNames (lib.filterAttrs
+      (name: type: type == "directory" &&
+        (builtins.pathExists (dir + "/${name}/__manifest__.py") ||
+         builtins.pathExists (dir + "/${name}/__openerp__.py")))
+      (builtins.readDir dir)))
+    dirs);
 in
 {
   # Build-time addon vendoring: a list of addon-repo specs baked into the image at
@@ -88,10 +99,49 @@ in
     '';
   };
 
+  # First-party addons, first class: directories of YOUR modules baked into the
+  # image (via the vendoredAddons machinery) and auto-installed on boot (via
+  # installModules → ODOO_INSTALL_MODULES → init.sh). The self-contained
+  # "my company image" seam — no runtime mounts, no manual Apps-list install.
+  options.odoo.localAddons = lib.mkOption {
+    type = lib.types.listOf lib.types.path;
+    default = [ ];
+    example = lib.literalExpression "[ ./custom_addons ]";
+    description = ''
+      Directories of first-party Odoo modules to bake into the image. Every
+      immediate child dir with an Odoo manifest (__manifest__.py /
+      __openerp__.py) is vendored into /opt/firestream/odoo/vendor-addons
+      (already on addons_path) and, by default, auto-installed on boot — see
+      `odoo.installModules`.
+    '';
+  };
+
+  options.odoo.installModules = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = discoverModules config.odoo.localAddons;
+    defaultText = lib.literalMD "every module discovered under `odoo.localAddons`";
+    example = [ "my_module" "base_fontawesome" ];
+    description = ''
+      Module names to install automatically, exported as ODOO_INSTALL_MODULES.
+      The entrypoint appends them to `--init=base` on first boot and re-`--init`s
+      them on subsequent boots, so modules newly baked into an image are also
+      installed on existing databases (`--init` is idempotent: missing modules
+      are installed, present ones updated).
+    '';
+  };
+
   config.odoo = {
     # Forward the vendored-addons list to module.nix through the factory's
     # extraModuleArgs seam (eval-container.nix splices this into moduleArgs).
     extraModuleArgs.vendoredAddons = config.odoo.vendoredAddons;
+
+    # localAddons ride the vendoredAddons machinery: each dir becomes a spec
+    # whose `src` wins over GitHub coordinates; vendor-addons.nix auto-discovers
+    # the module dirs. List options merge by concatenation, so this composes
+    # with consumer-supplied vendoredAddons.
+    vendoredAddons = map
+      (p: { name = "local-${builtins.baseNameOf p}"; src = p; })
+      config.odoo.localAddons;
 
     # Paths configuration
     # Per-key mkDefault so individual paths can be overridden independently.
@@ -136,6 +186,8 @@ in
       ODOO_SKIP_MODULES_UPDATE = "no";
       ODOO_LOAD_DEMO_DATA = "no";
       ODOO_LIST_DB = "no";
+      # Comma-separated modules init.sh installs (see odoo.installModules).
+      ODOO_INSTALL_MODULES = lib.concatStringsSep "," config.odoo.installModules;
 
       # Odoo credentials
       ODOO_EMAIL = "admin";
@@ -190,6 +242,7 @@ in
       "ODOO_SKIP_MODULES_UPDATE"
       "ODOO_LOAD_DEMO_DATA"
       "ODOO_LIST_DB"
+      "ODOO_INSTALL_MODULES"
     ];
 
     exposedPorts = lib.mkDefault [ 8069 8072 ];

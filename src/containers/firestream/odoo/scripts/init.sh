@@ -28,10 +28,21 @@ ODOO_INIT_MARKER="${ODOO_DATA_DIR}/.odoo_initialized"
 if [[ -f "$ODOO_INIT_MARKER" ]]; then
     info "Odoo already initialized, restoring persisted state..."
 
-    # Connect to database and optionally update modules
+    # Ensure baked modules are installed, and optionally update the rest.
+    # --init on ODOO_INSTALL_MODULES makes images self-installing on EXISTING
+    # databases too (a new module baked into a rebuilt image lands on the next
+    # boot): --init is idempotent — missing modules are installed, present ones
+    # updated. Both flags share one odoo run to keep boot time down.
+    local -a boot_args=()
+    if [[ -n "${ODOO_INSTALL_MODULES:-}" ]]; then
+        boot_args+=("--init=${ODOO_INSTALL_MODULES}")
+    fi
     if ! is_boolean_yes "$ODOO_SKIP_MODULES_UPDATE"; then
-        info "Updating Odoo modules..."
-        odoo_execute --update=all || warn "Module update failed, continuing..."
+        boot_args+=("--update=all")
+    fi
+    if [[ ${#boot_args[@]} -gt 0 ]]; then
+        info "Syncing Odoo modules (${boot_args[*]})..."
+        odoo_execute "${boot_args[@]}" || warn "Module sync failed, continuing..."
     fi
 else
     info "First run detected - initializing Odoo..."
@@ -50,8 +61,9 @@ else
     if ! is_boolean_yes "$ODOO_SKIP_BOOTSTRAP"; then
         info "Installing Odoo modules..."
 
-        # Build init arguments
-        local -a init_args=("--init=base")
+        # Build init arguments — base plus any baked auto-install modules
+        # (comma-separated ODOO_INSTALL_MODULES, see odoo.installModules).
+        local -a init_args=("--init=base${ODOO_INSTALL_MODULES:+,${ODOO_INSTALL_MODULES}}")
 
         # Add demo data flag
         if ! is_boolean_yes "$ODOO_LOAD_DEMO_DATA"; then
