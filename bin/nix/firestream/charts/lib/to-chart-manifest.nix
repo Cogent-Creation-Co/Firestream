@@ -15,6 +15,7 @@
 #   cfg._meta.deployment.*    - helm CLI knobs (atomic, wait, timeout, ...)
 #   cfg._meta.lifecycle.*     - { dependsOn, lastBreakingVersion }
 #   cfg._meta.containerRefs   - image map (Agent B fills in next phase)
+#   cfg._meta.backup          - { cronJobSuffix, quiesceDeployment } or null
 #   cfg._meta.provenance.*    - { flakeRevision, nixpkgsRevision }
 #
 # Additional arguments come in via the partial-application call from
@@ -68,6 +69,7 @@ let
       lastBreakingVersion = cfg._meta.lifecycle.lastBreakingVersion;
     };
     images = cfg._meta.containerRefs;
+    backup = cfg._meta.backup;
     provenance = {
       flakeRevision = cfg._meta.provenance.flakeRevision;
       nixpkgsRevision = cfg._meta.provenance.nixpkgsRevision;

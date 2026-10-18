@@ -118,6 +118,58 @@ let
         description = "Additional uv2nix workspaces built into separate venvs baked into the image (e.g. guest DAG deps).";
       };
 
+      # Consumer-owned dependencies for the PRIMARY venv — the one the app
+      # process imports from. Use this (not extraWorkspaces) when the app loads
+      # the packages in-process, e.g. Odoo addons importing a library. Both
+      # sub-options default to inert; the factory call is then textually
+      # identical to a container that never set them.
+      pythonWorkspace = lib.mkOption {
+        default = {};
+        description = "Replace or extend the primary uv2nix workspace that builds the app's own venv.";
+        type = lib.types.submodule {
+          options = {
+            replace = lib.mkOption {
+              default = null;
+              description = ''
+                A consumer-owned uv2nix workspace (pyproject.toml + committed uv.lock)
+                that REPLACES the primary workspace root. Its lock is the whole truth
+                for the app's venv, so start from Firestream's pyproject.toml for this
+                container, add your dependencies and run `uv lock`. `requires-python`
+                must admit the container's interpreter. module.nix still comes from
+                Firestream. Firestream's overrides.nix (system-library build inputs)
+                is composed underneath yours unless `inheritOverrides = false`.
+              '';
+              type = lib.types.nullOr (lib.types.submodule {
+                options = {
+                  src = lib.mkOption { type = lib.types.path; description = "Directory with pyproject.toml + uv.lock (+ optional overrides.nix)."; };
+                  overrides = lib.mkOption { type = lib.types.nullOr lib.types.path; default = null; description = "Optional path to an overrides.nix; if null, <src>/overrides.nix is auto-loaded when present."; };
+                  inheritOverrides = lib.mkOption { type = lib.types.bool; default = true; description = "Compose Firestream's own overrides.nix underneath the consumer's."; };
+                };
+              });
+            };
+            extend = lib.mkOption {
+              default = [];
+              description = ''
+                Consumer-owned uv2nix workspaces whose dependencies are MERGED into the
+                primary venv. Each must declare only NEW packages, or packages at the
+                exact version the base lock already pins: a Nix-level diff of the uv.lock
+                files throws on any version disagreement and on a workspace member name
+                that collides with the base project. `requires-python` must admit the
+                container's interpreter. An sdist-only package the extension introduces
+                needs its build backend in the extension's overrides.nix
+                (`final.resolveBuildSystem { <backend> = [ ]; }`).
+              '';
+              type = lib.types.listOf (lib.types.submodule {
+                options = {
+                  src = lib.mkOption { type = lib.types.path; description = "Directory with pyproject.toml + uv.lock (+ optional overrides.nix)."; };
+                  overrides = lib.mkOption { type = lib.types.nullOr lib.types.path; default = null; description = "Optional path to an overrides.nix; if null, <src>/overrides.nix is auto-loaded when present."; };
+                };
+              });
+            };
+          };
+        };
+      };
+
       # In-image health/SBOM service (firestream-healthd). Phase 3: opt-in per
       # container. When enabled, the base.nix entrypoint wrapper launches
       # firestream-healthd in the background before exec'ing the inner
@@ -293,9 +345,14 @@ let
   # overrides.nix in its workspace; without these the Python closure differs
   # (and some packages fail to build). The { pkgs, lib } call contract is
   # unchanged from the legacy flake.
-  overrides =
+  baseOverrides =
     if workspacePath != null && builtins.pathExists (workspacePath + "/overrides.nix")
     then import (workspacePath + "/overrides.nix") { inherit pkgs lib; }
+    else {};
+
+  loadOverridesFor = { src, overridesPath }:
+    if overridesPath != null then import overridesPath { inherit pkgs lib; }
+    else if builtins.pathExists (src + "/overrides.nix") then import (src + "/overrides.nix") { inherit pkgs lib; }
     else {};
 
   # Resolve cfg.extraWorkspaces into the plain factory-arg shape consumed by
@@ -307,11 +364,35 @@ let
   resolvedExtraWorkspaces = map (w: {
     inherit (w) name src;
     python = if w.python != null then w.python else cfg.python;
-    overrides =
-      if w.overrides != null then import w.overrides { inherit pkgs lib; }
-      else if builtins.pathExists (w.src + "/overrides.nix") then import (w.src + "/overrides.nix") { inherit pkgs lib; }
-      else {};
+    overrides = loadOverridesFor { inherit (w) src; overridesPath = w.overrides; };
   }) cfg.extraWorkspaces;
+
+  # ── pythonWorkspace (primary-venv replace / extend) ──────────────────────
+  pw = cfg.pythonWorkspace;
+  pwActive = pw.replace != null || pw.extend != [];
+
+  # A replacement root still needs Firestream's system-library build inputs
+  # (lxml→libxml2, pillow→freetype, ...), so the consumer's overrides compose
+  # ON TOP of the base set by default.
+  overrides =
+    if pw.replace == null then baseOverrides
+    else
+      let consumer = loadOverridesFor { inherit (pw.replace) src; overridesPath = pw.replace.overrides; };
+      in if pw.replace.inheritOverrides
+         then firestreamLib.pythonWorkspaceLib.composeOverrides baseOverrides consumer
+         else consumer;
+
+  resolvedPythonWorkspace = {
+    replace = if pw.replace == null then null else { inherit (pw.replace) src; inherit overrides; };
+    extend = map (e: {
+      inherit (e) src;
+      overrides = loadOverridesFor { inherit (e) src; overridesPath = e.overrides; };
+    }) pw.extend;
+  };
+
+  # Passed to the factory only when active, like `healthArg`, so an inactive
+  # container's factory call is textually identical to today.
+  pythonWorkspaceArg = lib.optionalAttrs pwActive { pythonWorkspace = resolvedPythonWorkspace; };
 
   # When health.enable is true, the healthd port joins the container's exposed
   # ports so:
@@ -354,7 +435,7 @@ let
           exposedPorts = effectiveExposedPorts;
           inherit imageName imageTag;
         } // healthArg // cfg.extraModuleArgs;
-      } // extraFactoryArgs)
+      } // pythonWorkspaceArg // extraFactoryArgs)
     else if runtimeType == "system" || runtimeType == "java" then
       import modulePath ({
         inherit pkgs lib;

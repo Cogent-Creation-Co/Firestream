@@ -93,9 +93,14 @@ let
   # Self-reference for passing to python-workspace.nix
   # This is a recursive definition that works because Nix is lazy
   firestreamLib = rec {
-    inherit packages waitForPortPkg firestreamHealthdPkg;
+    inherit packages waitForPortPkg firestreamHealthdPkg pythonWorkspaceLib;
     mkPythonContainerModule = containerPython.mkPythonContainerModule;
   };
+
+  # Pure helpers behind the `pythonWorkspace` consumer seam (lock diff,
+  # overrides composition). No Python packaging inputs needed, so the test
+  # suite can exercise them.
+  pythonWorkspaceLib = import ./containers/python-workspace-lib.nix { inherit lib; };
 
   containerPythonWorkspace =
     if hasPythonInputs
@@ -172,6 +177,10 @@ in {
     if containerPythonWorkspace != null
     then containerPythonWorkspace.mkPythonWorkspaceContainer
     else throw "mkPythonWorkspaceContainer requires pyproject-nix, uv2nix, and pyproject-build-systems inputs";
+
+  # Lock-compatibility guard and overrides composition used by eval-container's
+  # `pythonWorkspace` option. Usage: firestream.pythonWorkspaceLib.assertCompatibleLocks { ... }
+  inherit pythonWorkspaceLib;
 
   # Node.js module (development environment)
   # Usage: firestream.node.packages, firestream.node.shellHook

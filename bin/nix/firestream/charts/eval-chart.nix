@@ -221,6 +221,29 @@ let
               });
             };
 
+            # Backup contract consumed by `firestream helm backup|restore`.
+            # Null means the chart ships no backup CronJob. `cronJobSuffix` is
+            # appended to the Bitnami fullname (`<fullname>-<suffix>`) to find
+            # the CronJob; `quiesceDeployment` makes the restore scale the
+            # `<fullname>` Deployment to zero first and back up afterwards.
+            backup = lib.mkOption {
+              default = null;
+              description = "Backup/restore CronJob contract, or null when the chart has none.";
+              type = lib.types.nullOr (lib.types.submodule {
+                options = {
+                  cronJobSuffix = lib.mkOption {
+                    type = lib.types.str;
+                    description = "Suffix after the Bitnami fullname naming the backup CronJob.";
+                  };
+                  quiesceDeployment = lib.mkOption {
+                    type = lib.types.bool;
+                    default = false;
+                    description = "Scale the app Deployment to zero around a restore.";
+                  };
+                };
+              });
+            };
+
             # Build-time provenance. flakeRevision/nixpkgsRevision are NOT
             # currently plumbed into the chart eval (framework.nix passes
             # only `pkgs`/`lib`/`firestreamLib` to eval-chart.nix); Phase 1
