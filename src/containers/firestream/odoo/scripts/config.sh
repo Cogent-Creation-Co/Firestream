@@ -60,10 +60,28 @@ if [[ ! -f "$ODOO_CONF_FILE" ]] || is_boolean_yes "${ODOO_FORCE_OVERWRITE_CONF:-
             "${ODOO_CONF_FILE}.template" > "$ODOO_CONF_FILE"
     else
         debug "Generating default config"
+
+        # addons_path has EXACTLY ONE definition: ../addons-layout.nix renders
+        # it and options.nix bakes the result into the image as
+        # ODOO_ADDONS_PATH, still carrying the literal {{ODOO_ADDONS_DIR}}
+        # token. Resolve that token here the same way the template branch above
+        # (and module.nix's activateFn) does. This used to be a hardcoded second
+        # copy of the path list, which silently diverged from the template the
+        # moment anything was added to it — hence the env var.
+        if [[ -z "${ODOO_ADDONS_PATH:-}" ]]; then
+            error "ODOO_ADDONS_PATH is unset. It is baked into the image by"
+            error "src/containers/firestream/odoo/options.nix; a container without it"
+            error "cannot generate a correct addons_path. Refusing to write a guess."
+            return 1
+        fi
+        addons_path_val="${ODOO_ADDONS_PATH//\{\{ODOO_ADDONS_DIR\}\}/${ODOO_ADDONS_DIR:-/opt/firestream/odoo/addons}}"
+
         cat > "$ODOO_CONF_FILE" <<EOF
 [options]
-; Addons paths (Odoo built-in + baked vendored + custom)
-addons_path = ${ODOO_BASE_DIR}/addons,${ODOO_BASE_DIR}/odoo/addons,${ODOO_BASE_DIR}/vendor-addons,${ODOO_ADDONS_DIR}
+; Addons paths (Odoo built-in + baked layers + baked vendored + custom).
+; Source of truth: src/containers/firestream/odoo/addons-layout.nix, via
+; the baked ODOO_ADDONS_PATH environment variable. Do not hardcode a copy.
+addons_path = ${addons_path_val}
 
 ; Admin password for database management (master password)
 admin_passwd = ${ODOO_PASSWORD}

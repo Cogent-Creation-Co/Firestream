@@ -13,6 +13,14 @@
 # a downstream flake supplies `config.odoo.vendoredAddons = [ ... ]` and gets an
 # Odoo image with those modules baked in, without forking Firestream.
 #
+# SCOPE: this builder is the FLAT, legacy path. It has exactly one output
+# directory and any duplicate module name is fatal. If you need ORDERED tiers
+# where a higher tier deliberately overrides a module from a lower one, use
+# `config.odoo.addonLayers` and ./addon-layers.nix instead. Both derivations are
+# produced and both land in the image; `vendor-addons` sits at the LOWEST
+# external precedence on addons_path (see ./addons-layout.nix), so adding layers
+# never changes what an existing vendoredAddons-only image resolves.
+#
 # Layout invariant: `$out/opt/firestream/odoo/vendor-addons/<module>/...`  ->  image
 # `/opt/firestream/odoo/vendor-addons/<module>/...`. Mirrors the `source.nix` idiom of
 # installing into `$out/opt/firestream/odoo`.
@@ -37,15 +45,9 @@
 
 let
   # Resolve each spec's source tree: explicit `src` wins, else fetchFromGitHub.
-  resolveSrc = spec:
-    if (spec.src or null) != null
-    then spec.src
-    else pkgs.fetchFromGitHub {
-      owner = spec.owner;
-      repo = spec.repo;
-      rev = spec.rev;
-      sha256 = spec.hash;
-    };
+  # Shared verbatim with ./addon-layers.nix via ./addons-layout.nix so the two
+  # builders can never disagree about what a spec's source is.
+  resolveSrc = (import ./addons-layout.nix { inherit lib; }).mkResolveSrc pkgs;
 
   # Per-spec shell snippet that copies the chosen modules into the output.
   copySnippet = spec:

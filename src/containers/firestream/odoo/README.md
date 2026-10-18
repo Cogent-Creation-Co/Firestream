@@ -229,6 +229,7 @@ docker run -d --name odoo \
 | `ODOO_CONF_FILE`             | Configuration file for Odoo.                    | `${ODOO_CONF_DIR}/odoo.conf`                  |
 | `ODOO_DATA_DIR`              | Odoo directory for data files.                  | `${ODOO_BASE_DIR}/data`                       |
 | `ODOO_ADDONS_DIR`            | Odoo directory for extra addons.                | `${ODOO_ADDONS_DIR:-${ODOO_BASE_DIR}/addons}` |
+| `ODOO_ADDONS_PATH`           | Baked `addons_path` (Firestream). Carries the literal `{{ODOO_ADDONS_DIR}}` token, substituted at boot. Rendered by `addons-layout.nix`; see "Baked addons" below. | `${ODOO_BASE_DIR}/addons,${ODOO_BASE_DIR}/odoo/addons,${ODOO_BASE_DIR}/vendor-addons,{{ODOO_ADDONS_DIR}}` |
 | `ODOO_TMP_DIR`               | Odoo directory for temporary files.             | `${ODOO_BASE_DIR}/tmp`                        |
 | `ODOO_PID_FILE`              | PID file for Odoo.                              | `${ODOO_TMP_DIR}/odoo.pid`                    |
 | `ODOO_LOGS_DIR`              | Odoo directory for log files.                   | `${ODOO_BASE_DIR}/log`                        |
@@ -259,6 +260,116 @@ When you start the Odoo image, you can adjust the configuration of the instance 
       --volume /path/to/odoo-persistence:/bitnami \
       bitnami/odoo:latest
     ```
+
+### Baked addons: `vendoredAddons`, `localAddons` and `addonLayers`
+
+> Firestream-specific. Options live in [`options.nix`](./options.nix); the
+> `addons_path` ordering has exactly one definition, in
+> [`addons-layout.nix`](./addons-layout.nix).
+
+There are two ways to bake addons into the image, and they coexist.
+
+#### Flat (legacy): `odoo.vendoredAddons` / `odoo.localAddons`
+
+Every module from every spec is laid into a single directory,
+`/opt/firestream/odoo/vendor-addons/<module>`, by
+[`vendor-addons.nix`](./vendor-addons.nix). Any duplicate module name is a fatal
+build error. `localAddons` is sugar over `vendoredAddons` and additionally
+auto-installs what it finds (via `odoo.installModules` →
+`ODOO_INSTALL_MODULES`). Nothing about this path has changed.
+
+#### Ordered: `odoo.addonLayers`
+
+Use this when you need tiers — a shared base, an org tier, a per-deployment
+tier — and a higher tier must be allowed to *override* a module from a lower
+one. The list is ordered **base → specific; later entries win**:
+
+```nix
+config.odoo.addonLayers = [
+  # lowest precedence
+  { name = "oca-web"; owner = "OCA"; repo = "web"; rev = "..."; hash = "...";
+    modules = [ "web_responsive" ]; }
+  { name = "org"; src = ./org-addons; }
+  # highest precedence — deliberately replaces org's copy of `sale_extras`
+  { name = "deployment"; src = ./deployment-addons; shadows = [ "sale_extras" ]; }
+];
+```
+
+On-disk layout, `<NN>` being the zero-padded declaration index:
+
+```text
+/opt/firestream/odoo/addons.d/00-oca-web/web_responsive/
+/opt/firestream/odoo/addons.d/01-org/<module>/
+/opt/firestream/odoo/addons.d/02-deployment/<module>/
+/opt/firestream/odoo/addons.d/layers.json      # resolved order + modules, for debugging
+```
+
+Per-layer fields, in addition to every `vendoredAddons` field
+(`name`/`owner`/`repo`/`rev`/`hash`/`src`/`sourceRoot`/`modules`):
+
+| field | type | default | meaning |
+|---|---|---|---|
+| `shadows` | `listOf str` | `[ ]` | Modules this layer may override in a lower layer. |
+| `autoInstall` | `nullOr bool` | `null` | Whether the layer's modules join `installModules`. `null` = auto. |
+
+A module defined by two layers is a **build error** naming both layers, unless
+the higher-precedence one lists it in `shadows`. The legacy
+`/opt/firestream/odoo/vendor-addons` output participates in that check as an
+implicit lowest-precedence pseudo-layer named `legacy-vendor-addons`.
+
+`autoInstall = null` resolves to auto-install only when the module names are
+knowable during Nix evaluation — that is, when `modules` is set explicitly or
+`src` is a plain local path. For a source fetched at build time they are not
+knowable, so the default is silently *not* to auto-install (the right default
+for an OCA pin). `autoInstall = true` on such a layer is an evaluation error
+telling you to set `modules`.
+
+#### `addons_path` ordering and `odoo.addonsDirPrecedence`
+
+```text
+[{{ODOO_ADDONS_DIR}}]                     if addonsDirPrecedence == "first"
+/opt/firestream/odoo/addons
+/opt/firestream/odoo/odoo/addons          Odoo core
+/opt/firestream/odoo/addons.d/<NN>-<name> layers, HIGHEST precedence first
+/opt/firestream/odoo/vendor-addons        legacy output, lowest external precedence
+[{{ODOO_ADDONS_DIR}}]                     if addonsDirPrecedence == "last"  (default)
+```
+
+Layers sit **after** Odoo core, so a layer can never silently shadow a core
+Odoo addon — core is not a layer, so the `shadows` diagnostic could not see
+such a collision. Shadowing core is out of scope.
+
+`odoo.addonsDirPrecedence = "first"` moves the runtime-overridable
+`ODOO_ADDONS_DIR` to the front, so a bind mount shadows every baked layer —
+which is how one image can serve both a normal deployment and a live-edit
+development loop.
+
+With `addonLayers = [ ]` and the default precedence the rendered string is
+byte-identical to what this image produced before `addonLayers` existed.
+
+#### ⚠ Changing addons on an existing deployment: `ODOO_FORCE_OVERWRITE_CONF`
+
+`/opt/firestream/odoo/conf` is declared **persistent**, and `odoo.conf` is only
+generated when it does not already exist. So on an existing deployment, pulling
+a new image with different layers leaves the old `odoo.conf` — and its old
+`addons_path` — in place. **The new layers are simply invisible**, with no error
+anywhere; Odoo just never looks in the new directories.
+
+The lever already exists: set
+
+```yaml
+ODOO_FORCE_OVERWRITE_CONF: "yes"
+```
+
+(chart `extraEnvVars`, compose `environment`, or `docker run --env`) and
+[`scripts/config.sh`](./scripts/config.sh) regenerates `odoo.conf` on every
+boot. Do not invent a second mechanism.
+
+The tradeoff is deliberate and worth stating: with this set, **hand edits to
+`odoo.conf` inside the container are discarded on restart**. For a
+declaratively-managed deployment that is the correct behaviour — the image is
+the source of truth. If you are hand-tuning `odoo.conf` in production, leave it
+off and update `addons_path` yourself when you change layers.
 
 ### Examples
 

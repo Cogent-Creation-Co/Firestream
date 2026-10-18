@@ -17,57 +17,117 @@
 { lib, config, ... }:
 
 let
-  # Spec for one vendored addon repository. `src` (a derivation/path), when set,
-  # WINS over owner/repo/rev/hash so non-GitHub sources work too. See
-  # ./vendor-addons.nix for how these are turned into a baked
-  # /opt/firestream/odoo/vendor-addons/<module> tree.
-  vendoredAddonSpec = lib.types.submodule {
-    options = {
-      name = lib.mkOption {
-        type = lib.types.str;
-        description = "Label for this repo (used in build logs and collision errors).";
-      };
-      owner = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "GitHub owner (when fetching via fetchFromGitHub).";
-      };
-      repo = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "GitHub repo (when fetching via fetchFromGitHub).";
-      };
-      rev = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "Commit or tag to pin (when fetching via fetchFromGitHub).";
-      };
-      hash = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "fetchFromGitHub sha256 (SRI string).";
-      };
-      src = lib.mkOption {
-        type = lib.types.nullOr (lib.types.either lib.types.path lib.types.package);
-        default = null;
+  layout = import ./addons-layout.nix { inherit lib; };
+
+  # Fields shared by EVERY addon source spec, whether it is a flat legacy
+  # `vendoredAddons` entry or an ordered `addonLayers` entry. Declared once so
+  # the two option types cannot drift; `addonLayerSpec` below adds fields to
+  # this set rather than restating it.
+  #
+  # `src` (a derivation/path), when set, WINS over owner/repo/rev/hash so
+  # non-GitHub sources work too — see `mkResolveSrc` in ./addons-layout.nix.
+  addonSourceFields = {
+    name = lib.mkOption {
+      type = lib.types.str;
+      description = "Label for this repo (used in build logs and collision errors).";
+    };
+    owner = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "GitHub owner (when fetching via fetchFromGitHub).";
+    };
+    repo = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "GitHub repo (when fetching via fetchFromGitHub).";
+    };
+    rev = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Commit or tag to pin (when fetching via fetchFromGitHub).";
+    };
+    hash = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "fetchFromGitHub sha256 (SRI string).";
+    };
+    src = lib.mkOption {
+      type = lib.types.nullOr (lib.types.either lib.types.path lib.types.package);
+      default = null;
+      description = ''
+        A prebuilt source tree (derivation or path). When set, it WINS over
+        owner/repo/rev/hash, enabling non-GitHub sources (fetchgit, local path,
+        flake input).
+      '';
+    };
+    sourceRoot = lib.mkOption {
+      type = lib.types.str;
+      default = ".";
+      description = "Subdirectory inside the repo that contains the module dirs.";
+    };
+    modules = lib.mkOption {
+      type = lib.types.nullOr (lib.types.listOf lib.types.str);
+      default = null;
+      description = ''
+        Explicit subset of module directory names to vendor. When null
+        (default), every immediate child dir with an Odoo manifest
+        (__manifest__.py / __openerp__.py) is auto-discovered.
+      '';
+    };
+  };
+
+  # Spec for one vendored addon repository. See ./vendor-addons.nix for how
+  # these are turned into a baked /opt/firestream/odoo/vendor-addons/<module>
+  # tree.
+  vendoredAddonSpec = lib.types.submodule { options = addonSourceFields; };
+
+  # Spec for one ORDERED addon layer. Everything a vendoredAddons entry has,
+  # plus provenance/override policy. See ./addon-layers.nix.
+  addonLayerSpec = lib.types.submodule {
+    options = addonSourceFields // {
+      shadows = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "sale_order_note" ];
         description = ''
-          A prebuilt source tree (derivation or path). When set, it WINS over
-          owner/repo/rev/hash, enabling non-GitHub sources (fetchgit, local path,
-          flake input).
+          Module names this layer may legitimately override in a
+          LOWER-precedence layer (including the implicit
+          `legacy-vendor-addons` pseudo-layer holding
+          `vendoredAddons`/`localAddons` output).
+
+          Undeclared cross-layer duplicates are a hard build error. This list
+          is the explicit, reviewable record of "yes, we meant to replace
+          that", and it is checked at build time — a name listed here that no
+          lower layer actually defines is simply inert.
         '';
       };
-      sourceRoot = lib.mkOption {
-        type = lib.types.str;
-        default = ".";
-        description = "Subdirectory inside the repo that contains the module dirs.";
-      };
-      modules = lib.mkOption {
-        type = lib.types.nullOr (lib.types.listOf lib.types.str);
+      autoInstall = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
         default = null;
+        example = true;
         description = ''
-          Explicit subset of module directory names to vendor. When null
-          (default), every immediate child dir with an Odoo manifest
-          (__manifest__.py / __openerp__.py) is auto-discovered.
+          Whether this layer's modules join the default `odoo.installModules`
+          (→ ODOO_INSTALL_MODULES → auto-install on boot).
+
+          `null` (the default) means AUTO, and resolves against whether the
+          module names are knowable at EVALUATION time. They are knowable when
+          either `modules` is set explicitly, or `src` is a plain Nix path
+          (a local directory Nix can read during evaluation). They are NOT
+          knowable for a source fetched at build time — fetchFromGitHub, a
+          derivation, a flake input.
+
+          | `autoInstall` | names knowable | behaviour |
+          |---------------|----------------|-----------|
+          | `null`        | yes            | auto-install |
+          | `null`        | no             | do NOT auto-install (silent) |
+          | `true`        | yes            | auto-install |
+          | `true`        | no             | evaluation error |
+          | `false`       | either         | never auto-install |
+
+          The silent `null`/not-knowable case is the correct default for
+          OCA-style fetched layers: you pin a dependency repo, you do not want
+          all 300 of its modules installed. Set `modules` explicitly if you do
+          want a fetched layer auto-installed.
         '';
       };
     };
@@ -83,6 +143,33 @@ let
          builtins.pathExists (dir + "/${name}/__openerp__.py")))
       (builtins.readDir dir)))
     dirs);
+
+  # Can we enumerate this layer's modules WITHOUT realising a derivation?
+  # `builtins.isPath` is deliberately strict: it is true only for a real Nix
+  # path value (`./addons`), which `builtins.readDir` can walk during
+  # evaluation. A fetchFromGitHub result, any other derivation, and a flake
+  # input attrset are all false — their contents do not exist yet.
+  layerModulesKnowable = layer:
+    layer.modules != null || (layer.src != null && builtins.isPath layer.src);
+
+  # Module names a layer contributes to installModules (only ever called when
+  # layerModulesKnowable is true).
+  layerModules = layer:
+    if layer.modules != null then layer.modules else discoverModules [ layer.src ];
+
+  # Resolve `autoInstall` per the table in the option description above. The
+  # `null` default NEVER throws; only an explicit `true` on an unknowable layer
+  # does, and then with an actionable message.
+  layerAutoInstall = layer:
+    if layer.autoInstall == false then false
+    else if layerModulesKnowable layer then true
+    else if layer.autoInstall == true then
+      throw ("odoo.addonLayers: layer '${layer.name}': autoInstall requires an "
+        + "explicit `modules` list because its source is fetched at build time, "
+        + "so its module names are not knowable during evaluation. Either set "
+        + "`modules = [ ... ]` on this layer, or leave `autoInstall = null` and "
+        + "install the modules some other way.")
+    else false;
 in
 {
   # Build-time addon vendoring: a list of addon-repo specs baked into the image at
@@ -116,10 +203,85 @@ in
     '';
   };
 
+  # Ordered, provenance-carrying addon layers. THE mechanism for composing
+  # tiers (e.g. a shared base tier, an org tier, a per-deployment tier) where a
+  # higher tier deliberately overrides a module from a lower one — something the
+  # flat `vendoredAddons` list cannot express, since any duplicate there is
+  # fatal.
+  #
+  # ORDER IS SEMANTIC: the list runs base -> specific, LATER entries have HIGHER
+  # precedence. Each layer is baked into its own directory
+  # /opt/firestream/odoo/addons.d/<NN>-<name>/<module>, and addons_path lists
+  # them most-specific-first (see ./addons-layout.nix). Layers sit AFTER Odoo
+  # core and BEFORE the legacy vendor-addons directory.
+  options.odoo.addonLayers = lib.mkOption {
+    type = lib.types.listOf addonLayerSpec;
+    default = [ ];
+    example = lib.literalExpression ''
+      [
+        { name = "oca-web"; owner = "OCA"; repo = "web"; rev = "..."; hash = "...";
+          modules = [ "web_responsive" ]; }
+        { name = "org"; src = ./addons; }
+        { name = "deployment"; src = ./client-addons; shadows = [ "my_module" ]; }
+      ]
+    '';
+    description = ''
+      Ordered Odoo addon layers, listed base -> specific: later entries take
+      precedence over earlier ones.
+
+      Each layer accepts the same source fields as `odoo.vendoredAddons`
+      (name/owner/repo/rev/hash/src/sourceRoot/modules) plus `shadows` and
+      `autoInstall`. Layers are baked to
+      `/opt/firestream/odoo/addons.d/<NN>-<name>/<module>`, with `<NN>` the
+      zero-padded declaration index, and are wired into `addons_path` in
+      reverse (most specific first).
+
+      A module defined by two layers is a BUILD ERROR unless the
+      higher-precedence layer names it in `shadows`. The legacy
+      `/opt/firestream/odoo/vendor-addons` output participates in that check as
+      an implicit lowest-precedence layer called `legacy-vendor-addons`.
+
+      NOTE: after changing layers on an EXISTING deployment you must also set
+      `ODOO_FORCE_OVERWRITE_CONF=yes`, because `/opt/firestream/odoo/conf` is
+      persistent and `odoo.conf` is only generated when absent — otherwise the
+      container keeps its stale `addons_path` and the new layers are invisible.
+    '';
+  };
+
+  # Where the runtime-overridable addons dir sits on addons_path.
+  options.odoo.addonsDirPrecedence = lib.mkOption {
+    type = lib.types.enum [ "first" "last" ];
+    default = "last";
+    example = "first";
+    description = ''
+      Position of `{{ODOO_ADDONS_DIR}}` (ODOO_ADDONS_DIR, the writable
+      /opt/firestream/odoo/addons directory that charts and docker-compose bind
+      mounts land in) within `addons_path`.
+
+      `"last"` (the default) reproduces the historical ordering exactly: baked
+      content wins, so baking and mounting the same module collides.
+
+      `"first"` puts it at the FRONT, so a runtime bind mount shadows every
+      baked layer. That is what lets one image serve both the production and
+      the live-edit development loop instead of needing a second image.
+
+      Odoo core is unaffected either way — it is never shadowable by this
+      option, because core comes from `/opt/firestream/odoo/odoo/addons`.
+    '';
+  };
+
   options.odoo.installModules = lib.mkOption {
     type = lib.types.listOf lib.types.str;
-    default = discoverModules config.odoo.localAddons;
-    defaultText = lib.literalMD "every module discovered under `odoo.localAddons`";
+    default = lib.unique (
+      lib.concatMap (l: if layerAutoInstall l then layerModules l else [ ])
+        config.odoo.addonLayers
+      ++ discoverModules config.odoo.localAddons
+    );
+    defaultText = lib.literalMD ''
+      every module contributed by an `odoo.addonLayers` entry that resolves to
+      auto-install (see `autoInstall`), unioned with every module discovered
+      under `odoo.localAddons`
+    '';
     example = [ "my_module" "base_fontawesome" ];
     description = ''
       Module names to install automatically, exported as ODOO_INSTALL_MODULES.
@@ -175,6 +337,13 @@ in
     # extraModuleArgs seam (eval-container.nix splices this into moduleArgs).
     extraModuleArgs.vendoredAddons = config.odoo.vendoredAddons;
 
+    # Same seam for the ordered layers and the addons_path precedence knob.
+    # module.nix recomputes addons_path from exactly these two values via
+    # ./addons-layout.nix, so the baked ODOO_ADDONS_PATH below and the
+    # odoo.conf template can never disagree.
+    extraModuleArgs.addonLayers = config.odoo.addonLayers;
+    extraModuleArgs.addonsDirPrecedence = config.odoo.addonsDirPrecedence;
+
     # localAddons ride the vendoredAddons machinery: each dir becomes a spec
     # whose `src` wins over GitHub coordinates; vendor-addons.nix auto-discovers
     # the module dirs. List options merge by concatenation, so this composes
@@ -205,6 +374,22 @@ in
       ODOO_CONF_FILE = "/opt/firestream/odoo/conf/odoo.conf";
       ODOO_DATA_DIR = "/firestream/odoo/data";
       ODOO_ADDONS_DIR = "/opt/firestream/odoo/addons";
+
+      # THE addons_path, rendered once by ./addons-layout.nix and baked into the
+      # image so every generator reads one value instead of its own copy. It
+      # deliberately still carries the literal {{ODOO_ADDONS_DIR}} token: the
+      # runtime addons dir is overridable per-deployment (charts remap it), so
+      # the substitution happens at container start — in module.nix's activateFn
+      # sed pipeline for the template path, and in scripts/config.sh for the
+      # fallback path.
+      #
+      # With `addonLayers = [ ]` and the default `addonsDirPrecedence` this is
+      # byte-identical to the pre-addonLayers hardcoded literal.
+      ODOO_ADDONS_PATH = layout.mkAddonsPath {
+        layerDirs = layout.layerDirNames config.odoo.addonLayers;
+        inherit (config.odoo) addonsDirPrecedence;
+      };
+
       ODOO_TMP_DIR = "/opt/firestream/odoo/tmp";
       ODOO_PID_FILE = "/opt/firestream/odoo/tmp/odoo.pid";
       ODOO_LOGS_DIR = "/opt/firestream/odoo/log";

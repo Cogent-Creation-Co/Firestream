@@ -1075,7 +1075,7 @@ build-util:
 	cargo build --workspace
 
 .PHONY: test-util
-test-util: test-strategy-parity test-registry-parity
+test-util: test-strategy-parity test-registry-parity check-embedded-sync
 	@cd $(UTIL_DIR) && \
 	if [ -n "$$FIRESTREAM_UTIL_LIB_PATH" ]; then \
 		export LD_LIBRARY_PATH="$$FIRESTREAM_UTIL_LIB_PATH$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"; \
@@ -1104,6 +1104,20 @@ test-strategy-parity:
 .PHONY: test-registry-parity
 test-registry-parity:
 	@bash bin/build/test-registry-parity.sh
+
+# The anti-drift gate for the THIRD duplicated surface: the Nix workspace that
+# src/lib/rust/nix-container-builder embeds at compile time and builds images
+# from at runtime. Regenerates embedded/ and diffs it against the canonical
+# bin/nix/firestream + src/containers/firestream trees.
+#
+# Why it matters: build.rs embeds with respect_gitignore(true), so a NEW,
+# untracked file under src/containers/firestream/ (say a new options helper the
+# container's options.nix now imports) is silently absent from the embedded
+# copy. `nix build .#odoo` succeeds from the working tree while the Rust builder
+# evaluates a tree missing that import.
+.PHONY: check-embedded-sync
+check-embedded-sync:
+	@bash bin/build/check-embedded-sync.sh
 
 # ==============================================================================
 # CI entry points
