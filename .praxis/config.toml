@@ -1,0 +1,57 @@
+[project]
+prefix = "FIRE"
+# NOTE: the tracker is its own docs root, as in Category-Calculus. docs/ stays
+# the home of hand-written architecture prose; the ticket corpus lives here,
+# split by folder (active, done, work, notes, prd, research, decisions).
+docs_root = ".praxis"
+id_width = 3
+
+[schema]
+statuses = ["backlog", "active", "reference", "shelf", "done", "archived"]
+priorities = ["critical", "high", "medium", "low"]
+types = ["feature", "research", "plan", "prd", "reference", "citation"]
+# NOTE: an undeclared key is dropped in silence by default, so a misspelt
+# `depends_on:` yields an inert edge under a clean validate. Every key this
+# corpus uses must be declared below; anything else is an error.
+unknown_fields = "error"
+
+[schema.fields.amended]
+[schema.fields.audited]
+[schema.fields.created]
+[schema.fields.related]
+
+[board]
+columns = ["backlog", "active"]
+column_limit = 25
+
+[index]
+yaml = true
+csv = true
+
+[tags]
+# NOTE: an empty vocabulary enforces nothing. Pin the list once the corpus has
+# a few dozen tags, then grow it only by editing this file.
+vocabulary = []
+
+[scan]
+roots = ["src", "docs", "bin", "nix", ".praxis"]
+# NOTE: "config.toml" is excluded so a forbid literal added later cannot match
+# its own declaration; entries match by file or directory name.
+exclude = [".git", "target", "target-ra", "node_modules", "vendor", "config.toml"]
+forbid = []
+
+# Every key here is live whether it is written or not. They are pinned so a
+# future tool default cannot move this repo's commit shape without a diff.
+[commit]
+model = "sonnet"
+# NOTE: the tool default is 50, which truncates a phrase-length title. 72 is
+# the git subject convention, and the bracket of ids is prepended on top.
+subject_max = 72
+collapse_threshold = 8
+min_group_files = 6
+type_tags = ["ADD", "REF", "FIX", "DEL", "DOC"]
+default_tag = "REF"
+new_ticket_folder = "work"
+new_ticket_type = "feature"
+new_ticket_status = "done"
+new_ticket_priority = "medium"
