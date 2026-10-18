@@ -332,6 +332,97 @@ in
     '';
   };
 
+  options.odoo.limitTimeCpu = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 90;
+    example = 600;
+    description = ''
+      Maximum CPU seconds a request may consume (`limit_time_cpu` in
+      odoo.conf), exported as ODOO_LIMIT_TIME_CPU. Raise it together with
+      `limitTimeReal` for long-running imports or reports.
+    '';
+  };
+
+  options.odoo.limitTimeReal = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 150;
+    example = 1200;
+    description = ''
+      Maximum wall-clock seconds a request may take (`limit_time_real` in
+      odoo.conf), exported as ODOO_LIMIT_TIME_REAL. Odoo kills the worker when
+      a request exceeds it, so it must exceed `limitTimeCpu`.
+    '';
+  };
+
+  options.odoo.maxCronThreads = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 1;
+    example = 2;
+    description = ''
+      Number of threads dedicated to cron jobs (`max_cron_threads` in
+      odoo.conf), exported as ODOO_MAX_CRON_THREADS. `0` disables cron
+      processing in this container entirely.
+    '';
+  };
+
+  # The remaining odoo.conf limits. Defaults are Odoo's own built-in values, so
+  # a rendered conf that carries them changes no behaviour relative to an
+  # Odoo that never saw the keys.
+  options.odoo.limitTimeRealCron = lib.mkOption {
+    type = lib.types.int;
+    default = -1;
+    example = 600;
+    description = ''
+      Maximum wall-clock seconds a cron job may run (`limit_time_real_cron`
+      in odoo.conf), exported as ODOO_LIMIT_TIME_REAL_CRON. `-1` (Odoo's
+      default) means "same as limitTimeReal"; `0` disables the limit.
+    '';
+  };
+
+  options.odoo.limitMemorySoft = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 2147483648;
+    example = 1073741824;
+    description = ''
+      Soft per-worker memory limit in bytes (`limit_memory_soft` in
+      odoo.conf), exported as ODOO_LIMIT_MEMORY_SOFT. A worker above it is
+      recycled after its current request. Size it with the pod's memory
+      request and `workers`.
+    '';
+  };
+
+  options.odoo.limitMemoryHard = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 2684354560;
+    example = 1610612736;
+    description = ''
+      Hard per-worker memory limit in bytes (`limit_memory_hard` in
+      odoo.conf), exported as ODOO_LIMIT_MEMORY_HARD. A worker above it is
+      killed immediately. Must exceed `limitMemorySoft`.
+    '';
+  };
+
+  options.odoo.limitRequest = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 65536;
+    example = 8192;
+    description = ''
+      Number of requests a worker serves before it is recycled
+      (`limit_request` in odoo.conf), exported as ODOO_LIMIT_REQUEST.
+    '';
+  };
+
+  options.odoo.listDb = lib.mkOption {
+    type = lib.types.bool;
+    default = false;
+    description = ''
+      Whether the database manager and selector are reachable (`list_db` in
+      odoo.conf), exported as ODOO_LIST_DB (`yes`/`no`). Keep it `false` in
+      production: with `list_db = True` anyone who knows the master password
+      can create, duplicate, back up and drop databases over HTTP.
+    '';
+  };
+
   config.odoo = {
     # Forward the vendored-addons list to module.nix through the factory's
     # extraModuleArgs seam (eval-container.nix splices this into moduleArgs).
@@ -411,11 +502,21 @@ in
       # depends on ODOO_LONGPOLLING_PORT_NUMBER being reachable.
       ODOO_WORKERS = builtins.toString config.odoo.workers;
 
+      # Request/cron limits; see the odoo.limitTimeCpu, odoo.limitTimeReal and
+      # odoo.maxCronThreads options.
+      ODOO_LIMIT_TIME_CPU = builtins.toString config.odoo.limitTimeCpu;
+      ODOO_LIMIT_TIME_REAL = builtins.toString config.odoo.limitTimeReal;
+      ODOO_MAX_CRON_THREADS = builtins.toString config.odoo.maxCronThreads;
+      ODOO_LIMIT_TIME_REAL_CRON = builtins.toString config.odoo.limitTimeRealCron;
+      ODOO_LIMIT_MEMORY_SOFT = builtins.toString config.odoo.limitMemorySoft;
+      ODOO_LIMIT_MEMORY_HARD = builtins.toString config.odoo.limitMemoryHard;
+      ODOO_LIMIT_REQUEST = builtins.toString config.odoo.limitRequest;
+
       # Bootstrap configuration
       ODOO_SKIP_BOOTSTRAP = "no";
       ODOO_SKIP_MODULES_UPDATE = "no";
       ODOO_LOAD_DEMO_DATA = "no";
-      ODOO_LIST_DB = "no";
+      ODOO_LIST_DB = if config.odoo.listDb then "yes" else "no";
       # Comma-separated modules init.sh installs (see odoo.installModules).
       ODOO_INSTALL_MODULES = lib.concatStringsSep "," config.odoo.installModules;
 

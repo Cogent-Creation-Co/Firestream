@@ -32,4 +32,5 @@ pub mod deploy;
 pub mod diagnostics;
 pub mod env;
 pub mod harness;
+pub mod odoo_backup;
 pub mod pg_backup;

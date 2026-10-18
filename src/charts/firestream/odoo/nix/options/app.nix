@@ -52,6 +52,67 @@ in {
       '';
     };
 
+    # ----- odoo.conf limits -----
+    # Each one is emitted as an ODOO_* env var ONLY when set, so the stock
+    # render is unchanged and the container's baked default applies. The
+    # container renders odoo.conf on every pod start (the conf dir is on the
+    # rootfs, not the PVC), so a changed value takes effect on the next rollout.
+    limitTimeCpu = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 600;
+      description = "Max CPU seconds per request (`limit_time_cpu`); emitted as ODOO_LIMIT_TIME_CPU (container default 90).";
+    };
+
+    limitTimeReal = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 1200;
+      description = "Max wall-clock seconds per request (`limit_time_real`); emitted as ODOO_LIMIT_TIME_REAL (container default 150). Must exceed limitTimeCpu.";
+    };
+
+    limitTimeRealCron = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      example = 600;
+      description = "Max wall-clock seconds per cron job (`limit_time_real_cron`); emitted as ODOO_LIMIT_TIME_REAL_CRON (container default -1 = same as limit_time_real; 0 = unlimited).";
+    };
+
+    limitMemorySoft = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 1073741824;
+      description = "Soft per-worker memory limit in bytes (`limit_memory_soft`); emitted as ODOO_LIMIT_MEMORY_SOFT (container default 2147483648). Size with `resources.requests.memory` and `workers`.";
+    };
+
+    limitMemoryHard = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 1610612736;
+      description = "Hard per-worker memory limit in bytes (`limit_memory_hard`); emitted as ODOO_LIMIT_MEMORY_HARD (container default 2684354560). Must exceed limitMemorySoft.";
+    };
+
+    limitRequest = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 8192;
+      description = "Requests a worker serves before recycling (`limit_request`); emitted as ODOO_LIMIT_REQUEST (container default 65536).";
+    };
+
+    maxCronThreads = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 2;
+      description = "Threads dedicated to cron jobs (`max_cron_threads`); emitted as ODOO_MAX_CRON_THREADS (container default 1; 0 disables cron in this pod).";
+    };
+
+    listDb = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      example = false;
+      description = "Expose the database manager/selector (`list_db`); emitted as ODOO_LIST_DB yes/no (container default no). Keep false in production.";
+    };
+
     containerPorts = mkOption {
       type = types.nullOr (types.attrsOf (types.either types.str types.int));
       default = null;

@@ -107,6 +107,20 @@ fn e2e_k8s_pg_backup() {
     firestream_e2e_k8s::pg_backup::run_pg_backup_roundtrip();
 }
 
+// ---- Odoo backup/restore round-trip (multi-chart) ----
+// Deploys seaweedfs + odoo (backup.enabled=true), seeds a sentinel row in
+// the Odoo database and a sentinel file in the filestore, runs an
+// on-demand backup, deletes both, restores through the SAME
+// `restore_from_backup` path the `firestream helm restore` CLI uses (which
+// scales the Odoo Deployment to zero and back), and asserts both are back.
+// Gated by the `odoo-backup` filter token:
+//   FIRESTREAM_E2E_K8S_STACKS=odoo-backup
+#[test]
+#[ignore = "e2e-k8s: odoo backup/restore round-trip; needs k3d+kubectl+helm+nix+docker; run via `make test-e2e-k8s-odoo-backup`"]
+fn e2e_k8s_odoo_backup() {
+    firestream_e2e_k8s::odoo_backup::run_odoo_backup_roundtrip();
+}
+
 // ---- Object store (non-Bitnami chart) ----
 // SeaweedFS is the default local S3 object store. Its all-in-one pod is
 // deployed first in the dev stack (object store up before consumers).

@@ -164,5 +164,13 @@ in
       ];
       preBuild = setupPythonPath;
     });
+
+    # plaid-python - sdist-only package needs setuptools
+    plaid-python = prev.plaid-python.overrideAttrs (old: {
+      nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
+        buildPython
+      ];
+      preBuild = setupPythonPath;
+    });
   };
 }

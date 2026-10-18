@@ -361,6 +361,7 @@ dependencies = [
     { name = "ofxparse" },
     { name = "passlib" },
     { name = "pillow" },
+    { name = "plaid-python" },
     { name = "polib" },
     { name = "psutil" },
     { name = "psycopg2-binary" },
@@ -423,6 +424,7 @@ requires-dist = [
     { name = "ofxparse", specifier = ">=0.21" },
     { name = "passlib", specifier = ">=1.7.4" },
     { name = "pillow", specifier = ">=9.0.0" },
+    { name = "plaid-python", specifier = ">=7.0.0" },
     { name = "polib", specifier = ">=1.1.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.3.0" },
     { name = "psutil", specifier = ">=5.9.0" },
@@ -794,6 +796,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nulltype"
+version = "2.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/ce/92289851364b7f816a839c8064aac06c01f3a3ecf33ab04adf9d0a0ab66a/nulltype-2.3.1.zip", hash = "sha256:64aa3cb2ab5e904d1b37175b9b922bea268c13f9ce32e3d373313150ab5ef272", size = 20119, upload-time = "2018-06-03T22:01:01.45Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/0f/47dde1a3cceac9858da0bfb92d2279bf5f993ed075b72983e92efc297db3/nulltype-2.3.1-py2.py3-none-any.whl", hash = "sha256:16ae565745118e37e0558441f5821c76351d8c3a789640b5bca277cf65b2271b", size = 11054, upload-time = "2018-06-03T22:01:04.03Z" },
+]
+
+[[package]]
 name = "num2words"
 version = "0.5.14"
 source = { registry = "https://pypi.org/simple" }
@@ -861,6 +872,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/0b/d87733741526541c909bbf159e338dcace4f982daac6e5a8d6be225ca32d/pillow-12.0.0-cp312-cp312-win_amd64.whl", hash = "sha256:9fe611163f6303d1619bbcb653540a4d60f9e55e622d60a3108be0d5b441017a", size = 7001107, upload-time = "2025-10-15T18:22:21.644Z" },
     { url = "https://files.pythonhosted.org/packages/bc/96/aaa61ce33cc98421fb6088af2a03be4157b1e7e0e87087c888e2370a7f45/pillow-12.0.0-cp312-cp312-win_arm64.whl", hash = "sha256:7dfb439562f234f7d57b1ac6bc8fe7f838a4bd49c79230e0f6a1da93e82f1fad", size = 2436012, upload-time = "2025-10-15T18:22:23.621Z" },
 ]
+
+[[package]]
+name = "plaid-python"
+version = "43.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nulltype" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/02/015896fcac961c2bc0fa7975fc0bcffef97a6fda812866a6c8ea9d7250fd/plaid_python-43.0.0.tar.gz", hash = "sha256:cdca0a8161de3980fbe49fe8081504f63bdda19093915776d1fb06d20ea82c7a", size = 1303963, upload-time = "2026-08-18T15:26:00.129Z" }
 
 [[package]]
 name = "platformdirs"

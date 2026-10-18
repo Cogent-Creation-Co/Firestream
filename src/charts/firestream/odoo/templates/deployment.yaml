@@ -242,6 +242,29 @@ spec:
             - name: ODOO_WORKERS
               value: {{ .Values.workers | quote }}
             {{- /*
+            odoo.conf limits. Emitted only when set (kindIs guards keep an
+            explicit 0 / false, which `empty` would drop), so the default
+            render is unchanged and the container's baked defaults apply.
+            */}}
+            {{- range $key, $env := (dict "limitTimeCpu" "ODOO_LIMIT_TIME_CPU" "limitTimeReal" "ODOO_LIMIT_TIME_REAL" "limitTimeRealCron" "ODOO_LIMIT_TIME_REAL_CRON" "limitMemorySoft" "ODOO_LIMIT_MEMORY_SOFT" "limitMemoryHard" "ODOO_LIMIT_MEMORY_HARD" "limitRequest" "ODOO_LIMIT_REQUEST" "maxCronThreads" "ODOO_MAX_CRON_THREADS") }}
+            {{- $v := index $.Values $key }}
+            {{- /* Numbers arrive as float64 and would print as 1.61e+09; int64 restores the literal. */}}
+            {{- if and (not (kindIs "invalid" $v)) (not (kindIs "string" $v)) }}
+            - name: {{ $env }}
+              value: {{ $v | int64 | quote }}
+            {{- else if and (kindIs "string" $v) (ne $v "") }}
+            - name: {{ $env }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if kindIs "bool" .Values.listDb }}
+            - name: ODOO_LIST_DB
+              value: {{ ternary "yes" "no" .Values.listDb | quote }}
+            {{- else if and (kindIs "string" .Values.listDb) (ne .Values.listDb "") }}
+            - name: ODOO_LIST_DB
+              value: {{ .Values.listDb | quote }}
+            {{- end }}
+            {{- /*
             `containerPorts.*` drives the pod's `ports:` block, the Service's
             targetPort and the NetworkPolicy ingress rule. Without these two
             entries it did NOT drive the ports Odoo actually binds -- those came

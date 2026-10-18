@@ -414,6 +414,7 @@ mod tests {
             lifecycle: Default::default(),
             images: map,
             provenance: Default::default(),
+            backup: None,
         }
     }
 

@@ -64,6 +64,26 @@ pub struct ChartManifest {
     /// Build provenance (flake revision, nixpkgs revision). May be empty.
     #[serde(default)]
     pub provenance: Provenance,
+
+    /// Backup/restore contract. Absent when the chart ships no backup
+    /// CronJob (`_meta.backup = null` on the Nix side).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<Backup>,
+}
+
+/// How `firestream helm backup|restore` finds and drives a chart's backup
+/// CronJob.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Backup {
+    /// Suffix appended to the Bitnami fullname to name the CronJob, e.g.
+    /// `pgdumpall` -> `<fullname>-pgdumpall`.
+    pub cron_job_suffix: String,
+
+    /// Scale the `<fullname>` Deployment to zero before the restore Job and
+    /// back to its previous replica count afterwards.
+    #[serde(default)]
+    pub quiesce_deployment: bool,
 }
 
 /// Helm release / namespace placement.

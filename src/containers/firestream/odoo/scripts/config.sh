@@ -55,6 +55,13 @@ if [[ ! -f "$ODOO_CONF_FILE" ]] || is_boolean_yes "${ODOO_FORCE_OVERWRITE_CONF:-
             -e "s|{{ODOO_PORT_NUMBER}}|${ODOO_PORT_NUMBER:-8069}|g" \
             -e "s|{{ODOO_LONGPOLLING_PORT_NUMBER}}|${ODOO_LONGPOLLING_PORT_NUMBER:-8072}|g" \
             -e "s|{{ODOO_WORKERS}}|${ODOO_WORKERS:-0}|g" \
+            -e "s|{{ODOO_LIMIT_TIME_CPU}}|${ODOO_LIMIT_TIME_CPU:-90}|g" \
+            -e "s|{{ODOO_LIMIT_TIME_REAL}}|${ODOO_LIMIT_TIME_REAL:-150}|g" \
+            -e "s|{{ODOO_LIMIT_TIME_REAL_CRON}}|${ODOO_LIMIT_TIME_REAL_CRON:--1}|g" \
+            -e "s|{{ODOO_LIMIT_MEMORY_SOFT}}|${ODOO_LIMIT_MEMORY_SOFT:-2147483648}|g" \
+            -e "s|{{ODOO_LIMIT_MEMORY_HARD}}|${ODOO_LIMIT_MEMORY_HARD:-2684354560}|g" \
+            -e "s|{{ODOO_LIMIT_REQUEST}}|${ODOO_LIMIT_REQUEST:-65536}|g" \
+            -e "s|{{ODOO_MAX_CRON_THREADS}}|${ODOO_MAX_CRON_THREADS:-1}|g" \
             -e "s|{{ODOO_LIST_DB}}|${list_db_val}|g" \
             -e "s|{{ODOO_LOG_LEVEL}}|${log_level_val}|g" \
             "${ODOO_CONF_FILE}.template" > "$ODOO_CONF_FILE"
@@ -112,9 +119,13 @@ ${gevent_port_key} = ${ODOO_LONGPOLLING_PORT_NUMBER}
 workers = ${ODOO_WORKERS:-0}
 
 ; Performance settings
-limit_time_cpu = 90
-limit_time_real = 150
-max_cron_threads = 1
+limit_time_cpu = ${ODOO_LIMIT_TIME_CPU:-90}
+limit_time_real = ${ODOO_LIMIT_TIME_REAL:-150}
+limit_time_real_cron = ${ODOO_LIMIT_TIME_REAL_CRON:--1}
+limit_memory_soft = ${ODOO_LIMIT_MEMORY_SOFT:-2147483648}
+limit_memory_hard = ${ODOO_LIMIT_MEMORY_HARD:-2684354560}
+limit_request = ${ODOO_LIMIT_REQUEST:-65536}
+max_cron_threads = ${ODOO_MAX_CRON_THREADS:-1}
 
 ; Security
 list_db = ${list_db_val}

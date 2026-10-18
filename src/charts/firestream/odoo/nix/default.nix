@@ -74,6 +74,11 @@
     # Bundled subchart (postgresql) and external-database fallback
     ./options/postgresql.nix
     ./options/external-database.nix
+
+    # Firestream-only: database + filestore backup CronJob. Not a Bitnami
+    # value; the flake-module renders an `extraDeploy` CronJob that reads
+    # `.Values.backup.*` at helm time.
+    ./options/backup.nix
   ];
 
   # ------------------------------------------------------------------

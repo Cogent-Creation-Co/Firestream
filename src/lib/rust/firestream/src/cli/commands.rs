@@ -11,6 +11,7 @@ use k8s_manager::K3dClusterManager;
 use crate::core::{FirestreamError, Result};
 use std::path::PathBuf;
 use tracing::{info, error};
+use helm_manager::kubectl_client::KubectlClient;
 
 /// Execute the CLI command
 pub async fn execute_command(cli: Cli) -> Result<()> {
@@ -1142,17 +1143,9 @@ async fn execute_helm_command(command: &HelmCommand, charts_dir: &PathBuf) -> Re
                 ))
             })?;
 
-            let release_name = manifest
-                .release
-                .release_name
-                .clone()
-                .unwrap_or_else(|| manifest.name.clone());
-            let ns = namespace
-                .clone()
-                .or_else(|| manifest.release.namespace.clone())
-                .unwrap_or_else(|| "default".to_string());
-            let fullname = bitnami_fullname(&release_name, &manifest.chart);
-            let cronjob = format!("{}-pgdumpall", fullname);
+            let target = BackupTarget::from_manifest(&manifest, namespace.clone())?;
+            let ns = target.namespace.clone();
+            let cronjob = target.cronjob.clone();
             let job_name = k8s_name_trunc(format!("{}-manual-{}", cronjob, short_id()));
 
             let kubectl = KubectlClient::new()
@@ -1197,7 +1190,7 @@ async fn execute_helm_command(command: &HelmCommand, charts_dir: &PathBuf) -> Re
                     println!("Discover the exact key from the job logs:");
                     println!("  kubectl logs -n {} job/{}", ns, job_name);
                     println!(
-                        "or list:  aws s3 ls s3://firestream/pg-backups/ --endpoint-url http://seaweedfs-all-in-one.seaweedfs.svc.cluster.local:8333"
+                        "or list:  aws s3 ls s3://firestream/ --recursive --endpoint-url http://seaweedfs-all-in-one.seaweedfs.svc.cluster.local:8333"
                     );
                 }
             }
@@ -1210,51 +1203,19 @@ async fn execute_helm_command(command: &HelmCommand, charts_dir: &PathBuf) -> Re
                 ))
             })?;
 
-            let release_name = manifest
-                .release
-                .release_name
-                .clone()
-                .unwrap_or_else(|| manifest.name.clone());
-            let ns = namespace
-                .clone()
-                .or_else(|| manifest.release.namespace.clone())
-                .unwrap_or_else(|| "default".to_string());
-            let fullname = bitnami_fullname(&release_name, &manifest.chart);
-            let cronjob_name = format!("{}-pgdumpall", fullname);
+            let target = BackupTarget::from_manifest(&manifest, namespace.clone())?;
 
             let kubectl = KubectlClient::new()
                 .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
 
-            // Single source of truth: inherit the deployed backup CronJob's
-            // container spec (image, env incl. S3/AWS creds + PG conn + the
-            // SeaweedFS-vs-cloud-S3 toggles, volumes, securityContext). This
-            // works for SeaweedFS AND real cloud S3 automatically, with zero
-            // duplication of the env contract.
-            let cronjob_json = kubectl
-                .get_resource_json("cronjob", &cronjob_name, &ns)
-                .await
-                .map_err(|e| {
-                    FirestreamError::ConfigError(format!(
-                        "backup not configured for `{}`; restore needs the `{}` CronJob (set backup.enabled=true). Underlying error: {}",
-                        chart, cronjob_name, e
-                    ))
-                })?;
-            let job_name = k8s_name_trunc(format!("{}-pgrestore-{}", fullname, short_id()));
-            let job_manifest = build_pg_restore_job_json(&cronjob_json, &job_name, &ns, from)?;
-
-            info!(
-                "Applying restore job `{}` (inherited from cronjob `{}`) in namespace `{}` from key `{}`",
-                job_name, cronjob_name, ns, from
-            );
-            kubectl
-                .apply_yaml(&job_manifest, Some(&ns))
-                .await
-                .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
-
-            kubectl
-                .wait_for_job(&ns, &job_name, BACKUP_RESTORE_TIMEOUT_SECS)
-                .await
-                .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
+            let job_name = restore_from_backup(
+                &kubectl,
+                &target,
+                from,
+                &restore_command(&manifest.name),
+                BACKUP_RESTORE_TIMEOUT_SECS,
+            )
+            .await?;
 
             println!("Restore complete from key `{}` (job `{}`).", from, job_name);
         }
@@ -1265,6 +1226,217 @@ async fn execute_helm_command(command: &HelmCommand, charts_dir: &PathBuf) -> Re
 
 /// Default deadline (seconds) for a manual backup or restore Job to finish.
 const BACKUP_RESTORE_TIMEOUT_SECS: u64 = 600;
+
+/// Everything the backup/restore arms need to find and drive one release's
+/// backup CronJob, resolved from the chart manifest's `backup` contract.
+#[derive(Debug, Clone)]
+pub struct BackupTarget {
+    /// Firestream chart name (`manifest.name`).
+    pub name: String,
+    /// Helm chart name, which Bitnami also uses as `app.kubernetes.io/name`.
+    pub chart: String,
+    pub release: String,
+    pub namespace: String,
+    /// Bitnami `common.names.fullname` for the release.
+    pub fullname: String,
+    /// `<fullname>-<cronJobSuffix>`.
+    pub cronjob: String,
+    /// Scale the `<fullname>` Deployment to zero around a restore.
+    pub quiesce_deployment: bool,
+}
+
+impl BackupTarget {
+    /// Resolve names from the manifest. `namespace` overrides the manifest's
+    /// release namespace; the last fallback is `default`.
+    pub fn from_manifest(
+        manifest: &firestream_charts::ChartManifest,
+        namespace: Option<String>,
+    ) -> Result<Self> {
+        let backup = manifest.backup.as_ref().ok_or_else(|| {
+            FirestreamError::ConfigError(format!(
+                "chart `{}` declares no backup CronJob (`_meta.backup` is unset in its chart-manifest.json)",
+                manifest.name
+            ))
+        })?;
+        let release = manifest
+            .release
+            .release_name
+            .clone()
+            .unwrap_or_else(|| manifest.name.clone());
+        let namespace = namespace
+            .or_else(|| manifest.release.namespace.clone())
+            .unwrap_or_else(|| "default".to_string());
+        let fullname = bitnami_fullname(&release, &manifest.chart);
+        let cronjob = format!("{}-{}", fullname, backup.cron_job_suffix);
+        Ok(Self {
+            name: manifest.name.clone(),
+            chart: manifest.chart.clone(),
+            release,
+            namespace,
+            fullname,
+            cronjob,
+            quiesce_deployment: backup.quiesce_deployment,
+        })
+    }
+
+    /// Label selector for the release's app pods. Bitnami sets
+    /// `app.kubernetes.io/name` to the chart name, which excludes bundled
+    /// subchart pods (e.g. odoo's postgresql) and the backup Job pods.
+    pub fn app_pod_selector(&self) -> String {
+        format!(
+            "app.kubernetes.io/name={},app.kubernetes.io/instance={}",
+            self.chart, self.release
+        )
+    }
+}
+
+/// The restore container's command for a Firestream chart.
+///
+/// PostgreSQL restores straight into the running primary with
+/// [`PG_RESTORE_SCRIPT`]. Charts whose image carries `libhelpers<name>.sh`
+/// (odoo) delegate to the helper in the image so the CLI holds no copy of
+/// the archive format.
+pub fn restore_command(chart_name: &str) -> Vec<String> {
+    let script = match chart_name {
+        "odoo" => ODOO_RESTORE_SCRIPT,
+        _ => PG_RESTORE_SCRIPT,
+    };
+    vec!["bash".to_string(), "-c".to_string(), script.to_string()]
+}
+
+/// Run a restore end to end: render the one-shot Job from the deployed backup
+/// CronJob, quiesce the app Deployment when the chart asks for it, apply and
+/// wait for the Job, and always scale the Deployment back afterwards.
+///
+/// Returns the Job name. Shared by the `firestream helm restore` CLI arm and
+/// the k8s e2e harness so the two cannot drift.
+pub async fn restore_from_backup(
+    kubectl: &KubectlClient,
+    target: &BackupTarget,
+    from: &str,
+    command: &[String],
+    timeout: u64,
+) -> Result<String> {
+    let ns = &target.namespace;
+
+    // Single source of truth: inherit the deployed backup CronJob's container
+    // spec (image, env incl. S3/AWS creds + DB conn + the SeaweedFS-vs-cloud-S3
+    // toggles, volumes, securityContext). This works for SeaweedFS AND real
+    // cloud S3 automatically, with zero duplication of the env contract.
+    let cronjob_json = kubectl
+        .get_resource_json("cronjob", &target.cronjob, ns)
+        .await
+        .map_err(|e| {
+            FirestreamError::ConfigError(format!(
+                "backup not configured for `{}`; restore needs the `{}` CronJob (set backup.enabled=true). Underlying error: {}",
+                target.name, target.cronjob, e
+            ))
+        })?;
+    let job_name = k8s_name_trunc(format!("{}-restore-{}", target.fullname, short_id()));
+    let job_manifest = build_restore_job_json(&cronjob_json, &job_name, ns, from, command)?;
+
+    let previous_replicas = if target.quiesce_deployment {
+        Some(quiesce_deployment(kubectl, target, timeout).await?)
+    } else {
+        None
+    };
+
+    info!(
+        "Applying restore job `{}` (inherited from cronjob `{}`) in namespace `{}` from key `{}`",
+        job_name, target.cronjob, ns, from
+    );
+    let outcome = async {
+        kubectl
+            .apply_yaml(&job_manifest, Some(ns))
+            .await
+            .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
+        kubectl
+            .wait_for_job(ns, &job_name, timeout)
+            .await
+            .map_err(|e| FirestreamError::KubernetesError(e.to_string()))
+    }
+    .await;
+
+    if let Some(replicas) = previous_replicas {
+        let resumed = resume_deployment(kubectl, target, replicas, timeout).await;
+        match (&outcome, resumed) {
+            (Ok(()), Err(e)) => return Err(e),
+            (Err(_), Err(e)) => error!("{}", e),
+            _ => {}
+        }
+    }
+
+    outcome.map(|_| job_name)
+}
+
+/// Scale the release's Deployment to zero and wait until its pods are gone.
+/// Returns the replica count to restore afterwards.
+async fn quiesce_deployment(
+    kubectl: &KubectlClient,
+    target: &BackupTarget,
+    timeout: u64,
+) -> Result<u32> {
+    let deployment = &target.fullname;
+    let ns = &target.namespace;
+    let replicas = kubectl
+        .get_jsonpath("deployment", deployment, ns, "{.spec.replicas}")
+        .await
+        .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?
+        .parse::<u32>()
+        .unwrap_or(1);
+
+    info!(
+        "Stopping deployment `{}` in namespace `{}` ({} -> 0 replicas) for the restore",
+        deployment, ns, replicas
+    );
+    kubectl
+        .scale("deployment", deployment, ns, 0)
+        .await
+        .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
+    kubectl
+        .wait_for_pods_deleted(ns, &target.app_pod_selector(), timeout)
+        .await
+        .map_err(|e| FirestreamError::KubernetesError(e.to_string()))?;
+    Ok(replicas)
+}
+
+/// Scale the release's Deployment back and wait for the rollout.
+async fn resume_deployment(
+    kubectl: &KubectlClient,
+    target: &BackupTarget,
+    replicas: u32,
+    timeout: u64,
+) -> Result<()> {
+    let deployment = &target.fullname;
+    let ns = &target.namespace;
+    info!(
+        "Starting deployment `{}` in namespace `{}` again ({} replicas)",
+        deployment, ns, replicas
+    );
+    kubectl
+        .scale("deployment", deployment, ns, replicas)
+        .await
+        .map_err(|e| {
+            FirestreamError::KubernetesError(format!(
+                "restore finished but deployment `{}` could not be scaled back to {}: {}",
+                deployment, replicas, e
+            ))
+        })?;
+    kubectl
+        .rollout_status("deployment", deployment, ns, timeout)
+        .await
+        .map_err(|e| {
+            FirestreamError::KubernetesError(format!(
+                "restore finished but deployment `{}` did not become ready: {}",
+                deployment, e
+            ))
+        })
+}
+
+/// Restore command for the odoo chart. The archive format lives with the
+/// image (`src/containers/firestream/odoo/scripts/helpers.sh`); this only
+/// names the entry point. `S3_BACKUP_KEY` arrives from the Job env.
+const ODOO_RESTORE_SCRIPT: &str = "set -uo pipefail\nsource /opt/firestream/scripts/libhelpersodoo.sh\nodoo_restore_s3\n";
 
 /// A short, collision-resistant suffix for ad-hoc Job names.
 ///
@@ -1355,8 +1527,8 @@ while :; do
 done
 "#;
 
-/// Build a one-shot PostgreSQL restore Job by INHERITING the deployed backup
-/// CronJob's container spec.
+/// Build a one-shot restore Job by INHERITING the deployed backup CronJob's
+/// container spec.
 ///
 /// `cronjob` is the full `kubectl get cronjob … -o json` object. We lift
 /// `spec.jobTemplate.spec.template.spec` (the pod spec) verbatim — image, env
@@ -1364,7 +1536,7 @@ done
 /// SeaweedFS-vs-cloud toggles, and the PG connection vars), volumes,
 /// volumeMounts, securityContext, imagePullSecrets, nodeSelector, tolerations —
 /// and only:
-///   * replace the container `command` with [`PG_RESTORE_SCRIPT`],
+///   * replace the container `command` with `command` (see [`restore_command`]),
 ///   * append `S3_BACKUP_KEY=<from>`,
 ///   * drop the backup-only `PGDUMP_DIR` env var,
 ///   * force `restartPolicy: Never`.
@@ -1375,11 +1547,12 @@ done
 /// `cronjob_json` is the raw `kubectl get cronjob … -o json` output (parsed
 /// here, so callers don't need their own `serde_json` dependency). The output
 /// is a JSON string (`kubectl apply -f -` accepts JSON).
-pub fn build_pg_restore_job_json(
+pub fn build_restore_job_json(
     cronjob_json: &str,
     job_name: &str,
     namespace: &str,
     from: &str,
+    command: &[String],
 ) -> Result<String> {
     use serde_json::{json, Value};
 
@@ -1415,12 +1588,9 @@ pub fn build_pg_restore_job_json(
     let cobj = container.as_object_mut().ok_or_else(|| {
         FirestreamError::ConfigError("CronJob container is not a JSON object".into())
     })?;
-    cobj.insert("name".into(), json!("pg-restore"));
+    cobj.insert("name".into(), json!("restore"));
     cobj.insert("env".into(), Value::Array(env));
-    cobj.insert(
-        "command".into(),
-        json!(["bash", "-c", PG_RESTORE_SCRIPT]),
-    );
+    cobj.insert("command".into(), json!(command));
     // The CronJob sets `command` (not `args`); strip any inherited args so the
     // restore script is the sole entrypoint.
     cobj.remove("args");
@@ -1433,7 +1603,7 @@ pub fn build_pg_restore_job_json(
 
     let labels = json!({
         "app.kubernetes.io/managed-by": "firestream",
-        "app.kubernetes.io/component": "pg_restore",
+        "app.kubernetes.io/component": "restore",
     });
 
     let job = json!({
@@ -1499,11 +1669,12 @@ mod backup_restore_tests {
     #[test]
     fn restore_job_inherits_cronjob_container() {
         let cj = sample_cronjob().to_string();
-        let out = build_pg_restore_job_json(
+        let out = build_restore_job_json(
             &cj,
             "postgresql-pgrestore-abc",
             "postgresql",
             "pg-backups/pg_dumpall-2026-01-01-00-00-00.sql.gz",
+            &restore_command("postgresql"),
         )
         .expect("build restore job");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1541,6 +1712,51 @@ mod backup_restore_tests {
     #[test]
     fn restore_job_errors_on_missing_pod_spec() {
         let bogus = json!({ "kind": "CronJob", "spec": {} }).to_string();
-        assert!(build_pg_restore_job_json(&bogus, "j", "ns", "key").is_err());
+        assert!(build_restore_job_json(&bogus, "j", "ns", "key", &restore_command("postgresql")).is_err());
+    }
+
+    #[test]
+    fn odoo_restore_command_delegates_to_image_helper() {
+        let cj = sample_cronjob().to_string();
+        let out = build_restore_job_json(&cj, "odoo-restore-abc", "odoo", "odoo-backups/x.tar.gz", &restore_command("odoo"))
+            .expect("build restore job");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let c = &v["spec"]["template"]["spec"]["containers"][0];
+        let script = c["command"][2].as_str().unwrap();
+        assert!(script.contains("libhelpersodoo.sh"));
+        assert!(script.contains("odoo_restore_s3"));
+        assert!(!script.contains("psql"));
+    }
+
+    fn manifest(name: &str, backup: Option<firestream_charts::Backup>) -> firestream_charts::ChartManifest {
+        let json = serde_json::json!({
+            "schemaVersion": "1", "name": name, "chart": name, "version": "0.0.0",
+            "release": { "releaseName": name, "namespace": name },
+        });
+        let mut m: firestream_charts::ChartManifest = serde_json::from_value(json).unwrap();
+        m.backup = backup;
+        m
+    }
+
+    #[test]
+    fn backup_target_reads_suffix_and_quiesce_from_manifest() {
+        let m = manifest("odoo", Some(firestream_charts::Backup {
+            cron_job_suffix: "odoodump".into(),
+            quiesce_deployment: true,
+        }));
+        let t = BackupTarget::from_manifest(&m, None).unwrap();
+        assert_eq!(t.cronjob, "odoo-odoodump");
+        assert_eq!(t.namespace, "odoo");
+        assert!(t.quiesce_deployment);
+        assert_eq!(t.app_pod_selector(), "app.kubernetes.io/name=odoo,app.kubernetes.io/instance=odoo");
+
+        let t = BackupTarget::from_manifest(&m, Some("erp".into())).unwrap();
+        assert_eq!(t.namespace, "erp");
+    }
+
+    #[test]
+    fn backup_target_rejects_chart_without_backup_contract() {
+        let m = manifest("redis", None);
+        assert!(BackupTarget::from_manifest(&m, None).is_err());
     }
 }

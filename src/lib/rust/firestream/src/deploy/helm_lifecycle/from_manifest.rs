@@ -168,6 +168,7 @@ mod tests {
             lifecycle: Default::default(),
             images: Default::default(),
             provenance: Default::default(),
+            backup: None,
         };
         m.release.namespace = Some("data".into());
         m.release.create_namespace = true;
@@ -203,6 +204,7 @@ mod tests {
             lifecycle: Default::default(),
             images: Default::default(),
             provenance: Default::default(),
+            backup: None,
         };
         let info = chart_info_from_manifest(&m);
         assert!(info.values_files.is_empty());

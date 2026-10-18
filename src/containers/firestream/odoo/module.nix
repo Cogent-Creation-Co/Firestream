@@ -79,6 +79,17 @@
     # splits /websocket off to the gevent port MUST set this > 0.
     ODOO_WORKERS = "0";
 
+    # Request/cron/memory limits (odoo.conf: limit_time_cpu, limit_time_real,
+    # limit_time_real_cron, limit_memory_soft, limit_memory_hard,
+    # limit_request, max_cron_threads). Defaults are Odoo's own built-in values.
+    ODOO_LIMIT_TIME_CPU = "90";
+    ODOO_LIMIT_TIME_REAL = "150";
+    ODOO_LIMIT_TIME_REAL_CRON = "-1";
+    ODOO_LIMIT_MEMORY_SOFT = "2147483648";
+    ODOO_LIMIT_MEMORY_HARD = "2684354560";
+    ODOO_LIMIT_REQUEST = "65536";
+    ODOO_MAX_CRON_THREADS = "1";
+
     # Bootstrap configuration
     ODOO_SKIP_BOOTSTRAP = "no";
     ODOO_SKIP_MODULES_UPDATE = "no";
@@ -191,6 +202,7 @@ let
   configScript = builtins.readFile ./scripts/config.sh;
   initScript = builtins.readFile ./scripts/init.sh;
   secretsScript = builtins.readFile ./scripts/secrets.sh;
+  helpersScript = builtins.readFile ./scripts/helpers.sh;
 
   # Odoo-specific helper functions (needed by scripts)
   odooHelpers = ''
@@ -355,6 +367,8 @@ let
         grep -E -o "[0-9]+\.[0-9]+\.[0-9]+" | \
         cut -d'.' -f1
     }
+
+    ${helpersScript}
   '';
 
   # System dependencies (libs needed in the container)
@@ -416,6 +430,9 @@ let
   runtimeBinDeps = with pkgs; [
     coreutils bash gnused gnugrep gawk findutils which
     postgresql git curl netcat-gnu
+    # Dump/restore helpers (scripts/helpers.sh): tar for the archive, pgrep for
+    # the running-server guard, aws for the S3 CronJob and restore Job.
+    gnutar procps awscli2
     wkhtmltopdf
     nodejs_22
     nodePackages.rtlcss
@@ -477,9 +494,13 @@ let
     workers = {{ODOO_WORKERS}}
 
     ; Performance
-    limit_time_cpu = 90
-    limit_time_real = 150
-    max_cron_threads = 1
+    limit_time_cpu = {{ODOO_LIMIT_TIME_CPU}}
+    limit_time_real = {{ODOO_LIMIT_TIME_REAL}}
+    limit_time_real_cron = {{ODOO_LIMIT_TIME_REAL_CRON}}
+    limit_memory_soft = {{ODOO_LIMIT_MEMORY_SOFT}}
+    limit_memory_hard = {{ODOO_LIMIT_MEMORY_HARD}}
+    limit_request = {{ODOO_LIMIT_REQUEST}}
+    max_cron_threads = {{ODOO_MAX_CRON_THREADS}}
 
     ; Security
     list_db = {{ODOO_LIST_DB}}
@@ -679,6 +700,13 @@ in firestream.mkPythonContainerModule {
         -e "s|{{ODOO_PORT_NUMBER}}|''${ODOO_PORT_NUMBER:-8069}|g" \
         -e "s|{{ODOO_LONGPOLLING_PORT_NUMBER}}|''${ODOO_LONGPOLLING_PORT_NUMBER:-8072}|g" \
         -e "s|{{ODOO_WORKERS}}|''${ODOO_WORKERS:-0}|g" \
+        -e "s|{{ODOO_LIMIT_TIME_CPU}}|''${ODOO_LIMIT_TIME_CPU:-90}|g" \
+        -e "s|{{ODOO_LIMIT_TIME_REAL}}|''${ODOO_LIMIT_TIME_REAL:-150}|g" \
+        -e "s|{{ODOO_LIMIT_TIME_REAL_CRON}}|''${ODOO_LIMIT_TIME_REAL_CRON:--1}|g" \
+        -e "s|{{ODOO_LIMIT_MEMORY_SOFT}}|''${ODOO_LIMIT_MEMORY_SOFT:-2147483648}|g" \
+        -e "s|{{ODOO_LIMIT_MEMORY_HARD}}|''${ODOO_LIMIT_MEMORY_HARD:-2684354560}|g" \
+        -e "s|{{ODOO_LIMIT_REQUEST}}|''${ODOO_LIMIT_REQUEST:-65536}|g" \
+        -e "s|{{ODOO_MAX_CRON_THREADS}}|''${ODOO_MAX_CRON_THREADS:-1}|g" \
         -e "s|{{ODOO_LIST_DB}}|''${list_db_val}|g" \
         -e "s|{{ODOO_LOG_LEVEL}}|''${log_level_val}|g" \
         "$template_file" > "$conf_file"

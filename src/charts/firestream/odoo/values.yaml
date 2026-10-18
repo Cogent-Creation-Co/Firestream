@@ -220,6 +220,26 @@ replicaCount: 1
 ## docker-compose loop where nothing splits ports and one process is cheaper.
 ##
 workers: 0
+## odoo.conf limits. Each is rendered into the pod env ONLY when set, so an
+## empty value leaves the container's baked default in force. See
+## src/containers/firestream/odoo/options.nix for the defaults.
+## @param limitTimeCpu Max CPU seconds per request (`limit_time_cpu`); emitted as ODOO_LIMIT_TIME_CPU
+## @param limitTimeReal Max wall-clock seconds per request (`limit_time_real`); emitted as ODOO_LIMIT_TIME_REAL
+## @param limitTimeRealCron Max wall-clock seconds per cron job (`limit_time_real_cron`); emitted as ODOO_LIMIT_TIME_REAL_CRON
+## @param limitMemorySoft Soft per-worker memory limit in bytes (`limit_memory_soft`); emitted as ODOO_LIMIT_MEMORY_SOFT
+## @param limitMemoryHard Hard per-worker memory limit in bytes (`limit_memory_hard`); emitted as ODOO_LIMIT_MEMORY_HARD
+## @param limitRequest Requests a worker serves before recycling (`limit_request`); emitted as ODOO_LIMIT_REQUEST
+## @param maxCronThreads Threads dedicated to cron jobs (`max_cron_threads`); emitted as ODOO_MAX_CRON_THREADS
+## @param listDb Expose the database manager/selector (`list_db`); emitted as ODOO_LIST_DB yes/no
+##
+limitTimeCpu: ""
+limitTimeReal: ""
+limitTimeRealCron: ""
+limitMemorySoft: ""
+limitMemoryHard: ""
+limitRequest: ""
+maxCronThreads: ""
+listDb: ""
 ## Odoo container ports
 ## @param containerPorts.http Odoo HTTP container port
 ## @param containerPorts.gevent Odoo gevent (websocket/longpolling) container port; only bound when `workers` > 0

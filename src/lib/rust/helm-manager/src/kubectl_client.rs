@@ -381,6 +381,78 @@ impl KubectlClient {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
+    /// Scale a workload (`kubectl scale <kind>/<name> --replicas=<n>`).
+    pub async fn scale(&self, kind: &str, name: &str, namespace: &str, replicas: u32) -> Result<()> {
+        let mut cmd = self.base_command();
+        cmd.arg("scale")
+            .arg(format!("{}/{}", kind, name))
+            .arg(format!("--replicas={}", replicas))
+            .arg("-n").arg(namespace);
+
+        let output = cmd.output().await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::KubectlCommandFailed(format!(
+                "Failed to scale {}/{} to {}: {}",
+                kind, name, replicas, stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Block until every pod matching `selector` is gone
+    /// (`kubectl wait --for=delete pod -l <selector>`). Returns `Ok(())`
+    /// immediately when no pod matches.
+    pub async fn wait_for_pods_deleted(&self, namespace: &str, selector: &str, timeout: u64) -> Result<()> {
+        if self.get_pods(namespace, selector).await?.is_empty() {
+            return Ok(());
+        }
+
+        let mut cmd = self.base_command();
+        cmd.arg("wait")
+            .arg("--for=delete")
+            .arg("pod")
+            .arg("-n").arg(namespace)
+            .arg("-l").arg(selector)
+            .arg(format!("--timeout={}s", timeout));
+
+        let output = cmd.output().await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::KubectlCommandFailed(format!(
+                "Pods matching '{}' were not deleted: {}",
+                selector, stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Block until a rollout finishes (`kubectl rollout status <kind>/<name>`).
+    pub async fn rollout_status(&self, kind: &str, name: &str, namespace: &str, timeout: u64) -> Result<()> {
+        let mut cmd = self.base_command();
+        cmd.arg("rollout")
+            .arg("status")
+            .arg(format!("{}/{}", kind, name))
+            .arg("-n").arg(namespace)
+            .arg(format!("--timeout={}s", timeout));
+
+        let output = cmd.output().await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::KubectlCommandFailed(format!(
+                "Rollout of {}/{} did not finish: {}",
+                kind, name, stderr
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Create base command with common arguments
     fn base_command(&self) -> Command {
         let mut cmd = Command::new(&self.kubectl_path);
