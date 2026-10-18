@@ -28,6 +28,14 @@ ODOO_INIT_MARKER="${ODOO_DATA_DIR}/.odoo_initialized"
 if [[ -f "$ODOO_INIT_MARKER" ]]; then
     info "Odoo already initialized, restoring persisted state..."
 
+    # Odoo records the demo decision per-database at first init; demo data can
+    # never be retrofitted into an existing DB (modules installed later skip
+    # their demo data too). Surface the mismatch instead of failing silently.
+    if is_boolean_yes "$ODOO_LOAD_DEMO_DATA"; then
+        warn "ODOO_LOAD_DEMO_DATA=yes has no effect on an already-initialized database."
+        warn "Demo data only loads at first init - drop the database and data volumes to reseed."
+    fi
+
     # Ensure baked modules are installed, and optionally update the rest.
     # --init on ODOO_INSTALL_MODULES makes images self-installing on EXISTING
     # databases too (a new module baked into a rebuilt image lands on the next

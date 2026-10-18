@@ -33,7 +33,10 @@ dependencies = [
     "psycopg2-binary>=2.9.3",
     "pydot>=1.4.2",
     "pyopenssl>=21.0.0",
-    "PyPDF2>=2.0.0",
+    # Exact pin matching upstream Odoo 18 requirements.txt; PyPDF2 3.x removed
+    # the 1.x/2.x API (raises DeprecationError), which Odoo core still calls
+    # (e.g. sale_pdf_quote_builder's getFormTextFields).
+    "PyPDF2==2.12.1",
     "pyserial>=3.5",
     "python-dateutil>=2.8.2",
     "python-ldap>=3.4.0",

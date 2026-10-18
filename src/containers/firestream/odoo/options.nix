@@ -510,8 +510,14 @@ in
         ODOO_DATABASE_PASSWORD = "odoo";
       };
 
+      # Both volumes must be NAMED. An image VOLUME with no compose mapping gets
+      # an anonymous volume, which is discarded when the container is recreated
+      # -- while a named postgresql_data survives. That split lifecycle is what
+      # desynchronises Odoo's two halves: the DB keeps ir_attachment rows whose
+      # store_fname files went with the orphaned filestore volume.
       volumes = {
         postgresql_data = { };
+        odoo_data = { };
       };
 
       services = {
@@ -542,6 +548,9 @@ in
           # Own firestream-odoo image; publish web + longpolling + healthd.
           ports = [ "8069:8069" "8072:8072" "9180:9180" ];
           dependsOn = [ "postgresql" ];
+          # Mount the parent, matching the image VOLUME in module.nix and the
+          # chart's mountPath. Covers filestore + .app_initialized + .state.
+          volumes = [ "odoo_data:/firestream/odoo" ];
         };
       };
     };

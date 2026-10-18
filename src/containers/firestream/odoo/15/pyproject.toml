@@ -32,7 +32,9 @@ dependencies = [
     "psycopg2-binary>=2.8.6",
     "pydot>=1.4.1",
     "pyopenssl>=19.0.0,<20.0.0",
-    "PyPDF2>=1.26.0",
+    # Exact pin matching upstream Odoo 15 requirements.txt; PyPDF2 3.x removed
+    # the 1.x/2.x API (raises DeprecationError), which Odoo core still calls.
+    "PyPDF2==1.26.0",
     "pyserial>=3.4",
     "python-dateutil>=2.7.3",
     "python-ldap>=3.4.0",

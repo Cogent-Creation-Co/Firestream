@@ -717,7 +717,22 @@ in firestream.mkPythonContainerModule {
 
   inherit exposedPorts;
   inherit health;
-  volumes = [ "/firestream/odoo/data" "/opt/firestream/odoo/addons" "/bitnami/python" "/docker-entrypoint-init.d" ];
+  # Declare the volume at /firestream/odoo, NOT the /firestream/odoo/data child.
+  # Everything that must survive a container recreate lives under this parent:
+  # the filestore (data/filestore -- ir_attachment.store_fname points into it),
+  # the persistence marker (.app_initialized) and .state. Declaring only the
+  # `data` child left the marker on the container's writable layer, so every
+  # recreate re-ran module install against an already-populated DB, and -- with
+  # a DB on a *named* volume outliving an *anonymous* data volume -- left
+  # ir_attachment rows pointing at files that no longer existed (asset bundles
+  # then 500 and the login form never un-hides).
+  #
+  # The parent also matches the chart's `mountPath: /firestream/odoo` exactly.
+  # A PVC at the parent with an image VOLUME at the child is the shadowing bug
+  # documented in containers/base.nix -- the nested VOLUME masks the PVC subdir.
+  # base.nix drops strict children of a declared volume, so naming the parent
+  # here removes the nested `paths.data` declaration automatically.
+  volumes = [ "/firestream/odoo" "/opt/firestream/odoo/addons" "/bitnami/python" "/docker-entrypoint-init.d" ];
 
   user = {
     name = "odoo";
