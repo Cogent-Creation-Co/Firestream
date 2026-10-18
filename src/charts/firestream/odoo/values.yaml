@@ -199,11 +199,34 @@ extraEnvVarsSecret: ""
 ## NOTE: ReadWriteMany PVC(s) are required if replicaCount > 1
 ##
 replicaCount: 1
+## @param workers Number of Odoo HTTP worker processes (`workers` in odoo.conf)
+##
+## THE gevent-port switch. Odoo has two server modes exposing DIFFERENT sockets:
+##
+##   workers = 0  ThreadedServer. ONE process, binds `containerPorts.http` only,
+##                and serves websocket / longpolling traffic ON THAT SAME PORT.
+##                `containerPorts.gevent` is written into odoo.conf and then
+##                ignored -- nothing ever listens on it.
+##   workers > 0  PreforkServer. Spawns N HTTP workers plus a separate gevent
+##                worker, and THAT is what binds `containerPorts.gevent` (8072).
+##
+## Setting this above 0 is therefore the ONE change that exposes 8072: the
+## container port, the Service port and the ODOO_WORKERS env var are all gated
+## on it, so they cannot disagree. Anything that peels /websocket and
+## /longpolling off to 8072 -- the standard Odoo-behind-nginx layout, and what
+## the firestream nginx chart's `upstreams.<name>.routes` generates -- needs it.
+##
+## Default 0 keeps threaded mode, which is right for the single-container
+## docker-compose loop where nothing splits ports and one process is cheaper.
+##
+workers: 0
 ## Odoo container ports
 ## @param containerPorts.http Odoo HTTP container port
+## @param containerPorts.gevent Odoo gevent (websocket/longpolling) container port; only bound when `workers` > 0
 ##
 containerPorts:
   http: 8069
+  gevent: 8072
 ## @param extraContainerPorts Optionally specify extra list of additional ports for Odoo container(s)
 ## e.g:
 ## extraContainerPorts:
@@ -454,14 +477,18 @@ service:
   ##
   type: ClusterIP
   ## @param service.ports.http Odoo service HTTP port
+  ## @param service.ports.gevent Odoo service gevent (websocket/longpolling) port; only published when `workers` > 0
   ##
   ports:
     http: 80
+    gevent: 8072
   ## @param service.nodePorts.http NodePort for the Odoo HTTP endpoint
+  ## @param service.nodePorts.gevent NodePort for the Odoo gevent endpoint
   ## NOTE: choose port between <30000-32767>
   ##
   nodePorts:
     http: ""
+    gevent: ""
   ## @param service.sessionAffinity Control where client requests go, to the same pod or round-robin
   ## Values: ClientIP or None
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/

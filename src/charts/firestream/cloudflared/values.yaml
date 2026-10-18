@@ -1,0 +1,270 @@
+# Copyright Firestream. MIT License.
+# Default values for the Firestream cloudflared chart.
+#
+# cloudflared is the namespace's EDGE CONNECTOR:
+#
+#   Cloudflare edge --> Tunnel (one per namespace) --> cloudflared Deployment
+#                                                        `--> nginx Service :80 --> apps
+#
+# Three properties drive every choice below:
+#
+#  1. OUTBOUND ONLY. The connector dials the Cloudflare edge; nothing ever
+#     connects to it. Hence NO Service, NO Ingress, NO inbound containerPort
+#     other than the loopback-ish metrics listener the kubelet probes.
+#
+#  2. REMOTELY-MANAGED CONFIGURATION. The tunnel's ingress rules live in
+#     Cloudflare (ZeroTrustTunnelCloudflaredConfig, declared out-of-band by
+#     Pulumi). The pod holds ONLY a token. Hence NO config.yaml, NO credentials
+#     file, NO ingress rules and NO ConfigMap in this chart.
+#
+#  3. ITS OWN DEPLOYMENT, NEVER A SIDECAR. A sidecar would scale with its app
+#     (registering duplicate connectors at replicaCount > 1) and could only
+#     front its own pod. A namespace hosts several apps behind one tunnel, so
+#     the connector's replica count must be independent of any app's.
+
+## @section Global parameters
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  defaultStorageClass: ""
+  security:
+    ## Not needed here (cloudflared is an upstream image, not a Firestream one),
+    ## but kept for shape-compatibility with the other Firestream charts.
+    allowInsecureImages: false
+
+## @section Common parameters
+kubeVersion: ""
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+commonLabels: {}
+commonAnnotations: {}
+clusterDomain: cluster.local
+extraDeploy: []
+
+diagnosticMode:
+  enabled: false
+  command:
+    - sleep
+  args:
+    - infinity
+
+## @section cloudflared application parameters
+##
+## UPSTREAM IMAGE - NOT A FIRESTREAM BUILD.
+## cloudflared is Cloudflare's own connector binary; there is no
+## src/containers/firestream/cloudflared/ and no `firestreamImages.cloudflared`
+## to inject from, so this triple IS the source of truth for what runs.
+##
+## Pinned deliberately - `latest` would defeat the reproducibility the platform
+## exists for, and with `pullPolicy: IfNotPresent` below it would additionally
+## mean nodes cache the first image they pull and never see a new one. Set
+## `digest` for byte-exact pinning (digest wins over tag when set); look the
+## current one up rather than trusting a comment, which rots the moment the tag
+## moves.
+##
+## This triple is duplicated as `upstreamImage` in
+## nix/flake-modules/charts/cloudflared.nix, which is what chart-manifest.json
+## records. The `cloudflared-render-fidelity` check asserts the two agree, so
+## drift here is a red build, not a silently wrong manifest.
+##
+## The upstream image is distroless (gcr.io/distroless/base-debian13:nonroot),
+## already runs as 65532:65532, and its ENTRYPOINT is
+## `cloudflared --no-autoupdate`; `args` below supply the subcommand.
+image:
+  registry: docker.io
+  repository: cloudflare/cloudflared
+  tag: "2026.7.3"
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+## TWO replicas by default, for HA.
+## Cloudflare load-balances a tunnel across all connectors registered against
+## it, so two pods give a genuinely redundant edge. This is INDEPENDENT of any
+## application's replica count - that independence is the whole reason
+## cloudflared is its own Deployment rather than a sidecar.
+replicaCount: 2
+
+## Only the metrics/health listener. There is no inbound traffic port because
+## there is no inbound traffic.
+containerPorts:
+  metrics: 2000
+extraContainerPorts: []
+
+## @section Tunnel credentials
+##
+## The tunnel token is a Cloudflare-issued credential that identifies the tunnel
+## AND authorises connectors to register against it. It is created OUT OF BAND
+## (Pulumi creates the tunnel, then writes the token into a Kubernetes Secret);
+## this chart NEVER creates, templates or otherwise handles the value - it only
+## references the Secret by name.
+##
+## `existingSecret` empty => the conventional name `<fullname>-token`
+## (e.g. release `cloudflared` => Secret `cloudflared-token`). The secretKeyRef
+## is NOT marked optional, so a pod whose Secret is missing stays in
+## CreateContainerConfigError rather than silently running tokenless.
+existingSecret: ""
+tunnelTokenSecretKey: tunnel-token
+
+## @section Runtime behaviour
+##
+## `--metrics 0.0.0.0:<containerPorts.metrics>` starts cloudflared's diagnostic
+## HTTP server, which serves /ready (200 once at least one connection to the
+## edge is registered, 503 otherwise) and /metrics. It is what makes the probes
+## below meaningful; disabling it disables the probes too.
+metrics:
+  enabled: true
+
+## Appended to `tunnel --no-autoupdate [--metrics ...] run`. Escape hatch for
+## flags such as --protocol quic / --edge-ip-version / --loglevel.
+extraArgs: []
+
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+
+command: []
+args: []
+
+## Explicit requests/limits rather than a preset: these are the values a
+## sibling deployment ran in production, and GKE Autopilot mutates any pod
+## without them anyway. `resources` takes precedence over `resourcesPreset`.
+resourcesPreset: none
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+## GKE Autopilot-compatible hardening. The upstream image is distroless and
+## already declares USER 65532:65532; we restate it so the pod is rejected
+## rather than silently escalated if that ever changes upstream.
+podSecurityContext:
+  enabled: true
+  fsGroup: 65532
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  sysctls: []
+
+containerSecurityContext:
+  enabled: true
+  seLinuxOptions: {}
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  privileged: false
+  ## cloudflared with a remotely-managed tunnel writes nothing to disk: no
+  ## config.yaml, no credentials file, no state. A writable emptyDir is mounted
+  ## at /tmp purely so Go's os.CreateTemp has somewhere to go.
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+## Probes target cloudflared's /ready on the metrics port.
+##
+## /ready is the connector's own answer to "am I registered with the edge?" -
+## 200 with at least one live connection, 503 otherwise. That makes readiness
+## honest during a rolling update (a new pod is not Ready until it can actually
+## carry traffic), and makes liveness a real self-heal for a connector wedged
+## in a disconnected state.
+##
+## LIVENESS IS DELIBERATELY SLACK (failureThreshold 30 x 10s = 5m). Cloudflare
+## edge blips and reconnect backoff are normal; restarting on the first failed
+## probe would turn a transient network event into a CrashLoop.
+##
+## 5m rather than the more usual 60s because of what /ready actually measures:
+## it is 503 whenever the connector cannot reach the CLOUDFLARE EDGE, which is
+## a condition a restart does not fix. During a real edge incident a tight
+## threshold restarts BOTH replicas in lockstep, and the resulting
+## CrashLoopBackOff then delays reconnection *after* the edge recovers -- the
+## probe makes the outage longer. The threshold is sized to outlast a transient
+## event while still self-healing a genuinely wedged connector.
+startupProbe:
+  enabled: true
+  path: /ready
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+  successThreshold: 1
+livenessProbe:
+  enabled: true
+  path: /ready
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 30
+  successThreshold: 1
+readinessProbe:
+  enabled: true
+  path: /ready
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+## @section Pod scheduling / metadata
+updateStrategy:
+  type: RollingUpdate
+## The connector talks to the Cloudflare edge, never to the Kubernetes API.
+automountServiceAccountToken: false
+hostAliases: []
+podLabels: {}
+podAnnotations: {}
+
+## Spread the two replicas across nodes so a single node loss cannot take the
+## namespace's edge offline. `soft` (preferred, not required) keeps the
+## Deployment schedulable on a one-node dev cluster; set `hard` on a real
+## multi-node cluster, or set `affinity` to override both presets outright.
+podAffinityPreset: ""
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: ""
+  key: ""
+  values: []
+affinity: {}
+nodeSelector: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+## cloudflared drains connections on SIGTERM; give it room to finish in-flight
+## requests before the kubelet escalates to SIGKILL.
+terminationGracePeriodSeconds: 60
+lifecycleHooks: {}
+initContainers: []
+sidecars: []
+extraVolumes: []
+extraVolumeMounts: []
+
+autoscaling:
+  enabled: false
+
+## Off by default: a PDB is only meaningful once the cluster has more nodes
+## than it has connector replicas, and an unsatisfiable PDB blocks node drains.
+pdb:
+  create: false
+  minAvailable: ""
+  maxUnavailable: ""
+
+## @section ServiceAccount parameters
+##
+## NOTE: there is deliberately NO `service` section. cloudflared makes only
+## OUTBOUND connections; nothing in or out of the cluster ever dials it, so a
+## Service would be a permanently unused object.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false

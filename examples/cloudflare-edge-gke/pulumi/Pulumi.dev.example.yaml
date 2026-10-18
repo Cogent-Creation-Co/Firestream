@@ -1,0 +1,31 @@
+# Copy to Pulumi.dev.yaml and fill in. Secret values are set separately with
+# `pulumi config set --secret` so they never appear in plaintext here:
+#
+#   pulumi stack init dev
+#   pulumi config set gcp:project   my-gcp-project
+#   pulumi config set gcp:region    us-central1
+#   pulumi config set clusterName   firestream-edge
+#   pulumi config set arRepo        firestream
+#   pulumi config set namespace     edge
+#   pulumi config set hostname      odoo.example.com
+#
+#   # Cloudflare. accountId/zoneId are not secret; the API token is.
+#   # The token needs `Account:Cloudflare Tunnel:Edit` and `Zone:DNS:Edit`.
+#   pulumi config set cloudflareAccountId <id>
+#   pulumi config set cloudflareZoneId    <id>
+#   pulumi config set --secret cloudflare:apiToken <token>
+#
+#   pulumi config set --secret odooPassword        "$(openssl rand -base64 24)"
+#   pulumi config set --secret dbPassword          "$(openssl rand -base64 24)"
+#   pulumi config set --secret dbPostgresPassword  "$(openssl rand -base64 24)"
+config:
+  gcp:project: my-gcp-project
+  gcp:region: us-central1
+  firestream-cloudflare-edge-gke:clusterName: firestream-edge
+  firestream-cloudflare-edge-gke:arRepo: firestream
+  firestream-cloudflare-edge-gke:namespace: edge
+  firestream-cloudflare-edge-gke:hostname: odoo.example.com
+  firestream-cloudflare-edge-gke:cloudflareAccountId: REPLACE_ME
+  firestream-cloudflare-edge-gke:cloudflareZoneId: REPLACE_ME
+  # odooPassword / dbPassword / dbPostgresPassword: set with `--secret`.
+  # cloudflare:apiToken: set with `--secret`.

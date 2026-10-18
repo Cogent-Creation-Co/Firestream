@@ -1,0 +1,7 @@
+{{- /*
+Copyright Firestream. MIT License.
+*/}}
+{{- range .Values.extraDeploy }}
+---
+{{ include "common.tplvalues.render" (dict "value" . "context" $) }}
+{{- end }}

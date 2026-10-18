@@ -1,0 +1,14 @@
+name: firestream-cloudflare-edge-gke
+description: >-
+  GKE Autopilot cluster, Artifact Registry, GCP Secret Manager secrets, and the
+  Cloudflare Tunnel (plus its DNS record and in-cluster token Secret) for the
+  Firestream Cloudflare-edge deployment example.
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: venv
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: python

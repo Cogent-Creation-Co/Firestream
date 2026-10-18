@@ -43,6 +43,27 @@ spec:
       {{- else if eq .Values.service.type "ClusterIP" }}
       nodePort: null
       {{- end }}
+    {{- /*
+    The gevent (websocket / longpolling) port, under the same `workers > 0`
+    guard as the container port it targets. Odoo only binds 8072 in prefork
+    mode, so at workers = 0 this Service port would resolve to nothing and a
+    reverse proxy splitting /websocket off to it would get connection-refused.
+
+    A reverse proxy in front of Odoo -- the firestream nginx chart's
+    `upstreams.<name>.routes` is the motivating case -- points /websocket and
+    /longpolling at THIS port while `location /` goes to `http`.
+    */}}
+    {{- if gt (int .Values.workers) 0 }}
+    - name: gevent
+      port: {{ .Values.service.ports.gevent }}
+      protocol: TCP
+      targetPort: gevent
+      {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.gevent)) }}
+      nodePort: {{ .Values.service.nodePorts.gevent }}
+      {{- else if eq .Values.service.type "ClusterIP" }}
+      nodePort: null
+      {{- end }}
+    {{- end }}
     {{- if .Values.service.extraPorts }}
     {{- include "common.tplvalues.render" (dict "value" .Values.service.extraPorts "context" $) | nindent 4 }}
     {{- end }}

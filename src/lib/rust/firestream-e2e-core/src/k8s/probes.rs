@@ -684,9 +684,36 @@ pub fn for_chart(chart: &str, ctx: &K8sCtx) -> Result<Vec<Box<dyn Probe>>> {
             path: "/",
             max_status: 500,
         })]),
+        "nginx" => Ok(vec![Box::new(HttpProbeOverPortForward {
+            // The net-new nginx chart has one component, so select on
+            // instance + name like odoo. Service port 80 → targetPort
+            // `http` → container 8080 (unprivileged; the chart cannot bind
+            // 80 under GKE Autopilot).
+            //
+            // `/healthz` is the chart's own local, NON-PROXYING health
+            // location — the same one its readiness probe hits. That is the
+            // right thing to probe here precisely because it does not touch
+            // an upstream: with the default `upstreams: {}` there are no
+            // backends, and a proxy must stay Ready while its backends are
+            // absent or rolling. It returns a literal 200 "ok".
+            name: "nginx_healthz",
+            service_selector: format!(
+                "app.kubernetes.io/instance={},app.kubernetes.io/name=nginx",
+                rel
+            ),
+            remote_port: 80,
+            path: "/healthz",
+            max_status: 500,
+        })]),
+        // NOTE: there is deliberately no `cloudflared` arm. The connector's
+        // only health signal is /ready, which reports whether it has
+        // registered with the CLOUDFLARE EDGE — it cannot go Ready without a
+        // real Cloudflare account and a real tunnel token, so there is nothing
+        // a hermetic fresh-cluster harness can assert. See the e2eK8sCharts
+        // list in bin/nix/firestream/ci/profile.nix.
         other => bail!(
             "probe chain for chart `{}` not implemented; known charts: \
-             postgresql, redis, kafka, airflow, spark, jupyterhub, superset, odoo, seaweedfs",
+             postgresql, redis, kafka, airflow, spark, jupyterhub, superset, odoo, seaweedfs, nginx",
             other
         ),
     }

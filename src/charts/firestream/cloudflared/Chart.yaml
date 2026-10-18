@@ -1,0 +1,36 @@
+# Copyright Firestream. MIT License.
+# A net-new (non-Bitnami) Firestream supported app: the Cloudflare Tunnel
+# connector that fronts a namespace.
+#
+# THIS IS THE FIRST FIRESTREAM CHART WITH NO FIRESTREAM-BUILT CONTAINER. The
+# connector is Cloudflare's own closed-source binary shipped as
+# `cloudflare/cloudflared`; there is nothing for Nix to rebuild, so there is no
+# src/containers/firestream/cloudflared/ and no `firestreamImages.cloudflared`.
+# The chart's own values.yaml carries the pinned upstream image (see the
+# comment there), and nix/flake-modules/charts/cloudflared.nix records it as a
+# CATALOGUE-ONLY containerRef (componentPath = []) so chart-manifest.json still
+# documents what runs, without Nix injecting an image it did not build.
+apiVersion: v2
+name: cloudflared
+description: The Firestream Cloudflare Tunnel connector - a namespace-scoped, outbound-only Deployment that registers with the Cloudflare edge and forwards ingress traffic to in-namespace Services (normally the firestream nginx proxy). Tunnel ingress rules are managed REMOTELY via the Cloudflare API; this chart ships only the tunnel token reference.
+type: application
+version: 0.1.0
+appVersion: "2026.7.3"
+keywords:
+  - cloudflare
+  - cloudflared
+  - tunnel
+  - zero-trust
+  - ingress
+  - firestream
+sources:
+  - https://github.com/Cogent-Creation-Co/Firestream
+  - https://github.com/cloudflare/cloudflared
+dependencies:
+  # `common` only. The connector has no database, no cache and no bundled
+  # backing services - it is a single stateless Deployment.
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x

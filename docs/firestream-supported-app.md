@@ -61,12 +61,37 @@ emits four coordinated artifacts:
 The boundary, stated once: **Nix holds and builds artifacts 1, 2, and 4; the chart YAML
 (artifact 3) is hand-maintained in `src/charts/` and is never regenerated from Nix.**
 
+### Chart-only apps
+
+A **chart-only app** emits artifacts 2 and 3 but not 1 or 4, because there is no image for
+Nix to build: the app runs a third party's image. `cloudflared` is the case — Cloudflare's
+connector binary, shipped as `cloudflare/cloudflared`, with no
+`src/containers/firestream/cloudflared/` and no `firestreamImages.cloudflared`. No
+`docker-compose.yml` follows either, since `compose.nix` iterates `firestreamImages`; that is
+correct rather than a gap, as a tunnel connector has nothing to stand up locally.
+
+The image-injection machinery needs no special case for this. `_meta.containerRefs` is a
+plain declarative attrset, and `inject-container-images.nix` already defines
+`componentPath = [ ]` as *catalogue-only: record in `chart-manifest.json`, contribute no
+values overlay*. So the upstream triple is registered as a catalogue entry — the manifest
+still documents exactly what image runs, for the deploy layer and any SBOM tooling — while
+the chart's own `values.yaml` stays the single source of truth for the pin. Because that
+duplicates the triple across two files, the app's render-fidelity check must assert the two
+agree (see `cloudflared-render-fidelity` in `nix/flake-modules/charts/checks.nix`).
+
+Two further consequences: `global.security.allowInsecureImages` is not set (that flag exists
+to get Firestream's own non-Bitnami images past the `common` helpers' whitelist; an upstream
+image needs no bypass), and the generated `values.yaml` is empty with no consumer overrides —
+the strongest possible form of "the overlay is a strict subset of the chart's value surface".
+
 ---
 
 ## 2. The four outputs (per app)
 
 Every supported app `<app>` contributes the following flake attributes. The 8 canonical apps
 are: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset`, `odoo`.
+`seaweedfs`, `nextjs` and `nginx` follow the same shape from non-Bitnami chart forks;
+`cloudflared` is the chart-only app described in §1.
 
 | Output | Flake attribute(s) | Produced from |
 |--------|--------------------|---------------|
@@ -288,14 +313,18 @@ To add `<app>`, create:
 
 ## 9. Invariants (what makes an app "Supported")
 
-- **All four outputs build** on every supported platform.
+- **All four outputs build** on every supported platform — or, for a chart-only app (§1), the
+  two it declares. Which outputs an app emits is a property of the app, but emitting fewer
+  than it declares is a failure.
 - **The container is built entirely by Nix** — zero Bitnami build tooling or Bitnami binaries
-  in the image closure.
+  in the image closure. Vacuous for a chart-only app, which builds no container; in exchange
+  it owes a check that its catalogue-only `containerRefs` entry matches the image its chart
+  actually renders, since nothing else ties the two together.
 - **The values overlay is a strict subset** of the forked chart's value surface — Nix never
   regenerates templates. Behavior changes that need a template change go into
   `src/charts/firestream/<app>/templates/`.
 - **The chart renders offline** — `helm template` in the build sandbox is the gate.
 - **Compose and chart agree** on image reference and ports (both derive from the same evaluated
-  container module).
+  container module). A chart-only app has no compose file to agree with.
 - **The app is importable** — `firestream.lib.<system>.{images,charts}.<app>` resolve and the
   `eval` override hook works.

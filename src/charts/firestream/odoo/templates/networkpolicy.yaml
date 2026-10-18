@@ -48,7 +48,23 @@ spec:
   ingress:
     - ports:
         - port: {{ .Values.containerPorts.http }}
-        - port: {{ .Values.containerPorts.https }}
+        {{- /*
+        There is deliberately no `https` entry here. The Firestream Odoo
+        container has no TLS listener -- `containerPorts` is `{ http, gevent }`
+        only -- so a rule referencing `containerPorts.https` rendered as a bare
+        `- port:` (null), which matches EVERY port and silently neutered the
+        `workers > 0` gate below.
+        */}}
+        {{- /*
+        Same `workers > 0` guard as the pod's port and the Service's. Without
+        this the NetworkPolicy would admit HTTP but silently drop every
+        websocket / longpolling connection -- a proxy in front of Odoo would
+        serve pages fine and hang only on the upgrade, which is a miserable
+        thing to debug.
+        */}}
+        {{- if gt (int .Values.workers) 0 }}
+        - port: {{ .Values.containerPorts.gevent }}
+        {{- end }}
         {{- range .Values.extraContainerPorts }}
         - port: {{ .containerPort }}
         {{- end }}

@@ -221,6 +221,46 @@ spec:
             - name: ODOO_SMTP_PROTOCOL
               value: {{ .Values.smtpProtocol | quote }}
             {{- end }}
+            {{- /*
+            THE gevent-port switch, and the only setting that controls it.
+
+            Odoo has two server modes exposing DIFFERENT sockets:
+              workers = 0  ThreadedServer -- ONE process, binds http only, and
+                           serves websocket/longpolling ON THE HTTP PORT.
+                           gevent_port is written to odoo.conf and then ignored;
+                           NOTHING listens on it.
+              workers > 0  PreforkServer -- spawns a separate gevent worker, and
+                           that worker is what binds gevent_port (8072).
+
+            Emitted unconditionally so it always wins over the container's baked
+            default: bin/nix/firestream/env/defaults.nix writes
+            `export VAR="${VAR:-default}"`, so K8s-injected env takes precedence.
+            The `ports:` and Service blocks key off the same value, which is what
+            makes "expose 8072" a single setting rather than three that can
+            disagree.
+            */}}
+            - name: ODOO_WORKERS
+              value: {{ .Values.workers | quote }}
+            {{- /*
+            `containerPorts.*` drives the pod's `ports:` block, the Service's
+            targetPort and the NetworkPolicy ingress rule. Without these two
+            entries it did NOT drive the ports Odoo actually binds -- those came
+            from the image-baked ODOO_PORT_NUMBER / ODOO_LONGPOLLING_PORT_NUMBER
+            defaults (src/containers/firestream/odoo/module.nix), so changing
+            `containerPorts.gevent` produced a Service targeting an unbound
+            port. Emitting them here makes `containerPorts` the single source of
+            truth for "which ports Odoo listens on".
+
+            ODOO_LONGPOLLING_PORT_NUMBER is emitted UNCONDITIONALLY, not gated
+            on `workers > 0`: the container writes the gevent/longpolling key
+            into odoo.conf in both modes (it is simply not bound at workers = 0),
+            so gating it would leave the conf carrying the baked 8072 while the
+            chart advertised something else -- the exact drift this fixes.
+            */}}
+            - name: ODOO_PORT_NUMBER
+              value: {{ .Values.containerPorts.http | quote }}
+            - name: ODOO_LONGPOLLING_PORT_NUMBER
+              value: {{ .Values.containerPorts.gevent | quote }}
             {{- if .Values.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}
@@ -236,6 +276,16 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.containerPorts.http }}
+            {{- /*
+            The gevent port exists ONLY in prefork mode -- see the ODOO_WORKERS
+            comment above. Declaring it at workers = 0 would advertise a port
+            nothing binds, and a Service targeting it would blackhole every
+            websocket request.
+            */}}
+            {{- if gt (int .Values.workers) 0 }}
+            - name: gevent
+              containerPort: {{ .Values.containerPorts.gevent }}
+            {{- end }}
             {{- if .Values.extraContainerPorts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraContainerPorts "context" $) | nindent 12 }}
             {{- end }}

@@ -149,10 +149,18 @@ let
     "odoo"
   ];
 
-  # Canonical k8s charts, from `firestreamStacks.dev` / the 9 charts documented
-  # in CLAUDE.md, plus `pg-backup` — the multi-chart backup/restore round-trip
+  # Canonical k8s charts, from `firestreamStacks.dev` / the charts documented in
+  # CLAUDE.md, plus `pg-backup` — the multi-chart backup/restore round-trip
   # which has its own explicit makefile target (`test-e2e-k8s-pg-backup` wins
   # over the `test-e2e-k8s-%` pattern rule) and therefore its own phase.
+  #
+  # `cloudflared` is ABSENT BY DESIGN, not by omission. Its only health signal
+  # is /ready, which answers "have I registered with the Cloudflare edge?" — so
+  # it cannot reach Ready without a real Cloudflare account and a real tunnel
+  # token, and there is nothing a hermetic fresh-cluster harness could assert.
+  # Its chart is covered by the `cloudflared-render-fidelity` check instead,
+  # which makes structural assertions (no Service, no ConfigMap, no Secret) that
+  # a live deploy would not give us anyway.
   e2eK8sCharts = [
     "postgresql"
     "redis"
@@ -163,6 +171,7 @@ let
     "jupyterhub"
     "superset"
     "odoo"
+    "nginx"
     "pg-backup"
   ];
 

@@ -1,0 +1,264 @@
+# Copyright Firestream. MIT License.
+# Default values for the Firestream nginx chart.
+#
+# nginx is the per-namespace REVERSE PROXY. It listens on 8080 (unprivileged -
+# GKE Autopilot forbids privileged ports and root containers) and fans requests
+# out to application Services in the same namespace, based on `upstreams` below.
+
+## @section Global parameters
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  defaultStorageClass: ""
+  security:
+    ## Allow Firestream's non-Bitnami images to be used by Bitnami-derived
+    ## helpers. The flake image-injection module sets this true; false in the
+    ## bare chart.
+    allowInsecureImages: false
+
+## @section Common parameters
+kubeVersion: ""
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+commonLabels: {}
+commonAnnotations: {}
+clusterDomain: cluster.local
+extraDeploy: []
+
+diagnosticMode:
+  enabled: false
+  command:
+    - sleep
+  args:
+    - infinity
+
+## @section nginx application parameters
+image:
+  registry: docker.io
+  repository: firestream-nginx
+  tag: "1.28.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+  debug: false
+
+replicaCount: 1
+
+## Container port. MUST stay unprivileged and MUST match the container's
+## NGINX_HTTP_PORT_NUMBER (src/containers/firestream/nginx/options.nix).
+containerPorts:
+  http: 8080
+extraContainerPorts: []
+
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+
+command: []
+args: []
+
+resourcesPreset: nano
+resources: {}
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  sysctls: []
+
+containerSecurityContext:
+  enabled: true
+  seLinuxOptions: {}
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  privileged: false
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+## Probes hit the local /healthz location, which returns 200 WITHOUT proxying.
+## That is deliberate: a proxy must stay Ready (and keep serving its own 502s)
+## while an upstream is rolling, so its readiness must not depend on backends.
+startupProbe:
+  enabled: true
+  path: /healthz
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+  successThreshold: 1
+livenessProbe:
+  enabled: true
+  path: /healthz
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 6
+  successThreshold: 1
+readinessProbe:
+  enabled: true
+  path: /healthz
+  initialDelaySeconds: 2
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 6
+  successThreshold: 1
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+## Pod scheduling / metadata
+updateStrategy:
+  type: RollingUpdate
+automountServiceAccountToken: false
+hostAliases: []
+podLabels: {}
+podAnnotations: {}
+affinity: {}
+nodeSelector: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: ""
+lifecycleHooks: {}
+initContainers: []
+sidecars: []
+extraVolumes: []
+extraVolumeMounts: []
+
+autoscaling:
+  enabled: false
+
+pdb:
+  create: false
+  minAvailable: ""
+  maxUnavailable: ""
+
+## @section Traffic exposure parameters
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+  nodePorts:
+    http: ""
+  sessionAffinity: None
+  sessionAffinityConfig: {}
+  clusterIP: ""
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+  externalTrafficPolicy: Cluster
+  annotations: {}
+  extraPorts: []
+
+## @section ServiceAccount parameters
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+## @section nginx core configuration
+##
+## These map to the top-level / http-level directives of the generated
+## nginx.conf. `tmpDir` MUST match the container's NGINX_TMP_DIR - it is where
+## the pid file and every client/proxy temp path live, and it is the one
+## writable location under readOnlyRootFilesystem: true.
+nginxConfig:
+  workerProcesses: auto
+  workerConnections: 1024
+  errorLogLevel: warn
+  accessLog: true
+  tmpDir: /tmp/nginx
+  keepaliveTimeout: 65
+  serverTokens: false
+  ## DNS resolver for REQUEST-TIME upstream resolution.
+  ##
+  ## Empty (the default) means `proxy_pass http://<svc>:<port>;` -- nginx
+  ## resolves each name ONCE at config load and REFUSES TO START if a Service
+  ## does not exist yet. That is why nginx is deployed after its upstreams.
+  ##
+  ## Set this to the cluster DNS service (typically 10.96.0.10, or whatever
+  ## `nameserver` appears in a pod's /etc/resolv.conf) to switch to the
+  ## deferred form, which starts and stays up while a backend is absent and
+  ## answers 502 until it returns. Recommended once the namespace's Service
+  ## topology is stable enough to know the DNS address.
+  resolver: ""
+  resolverValid: 30s
+  resolverTimeout: 5s
+  ## Expand dotless upstream Service names to
+  ## `<svc>.<release namespace>.svc.<clusterDomain>` at render time.
+  ##
+  ## Set this when the values are generated somewhere that does NOT know the
+  ## namespace -- e.g. a Nix bundle whose namespace the deploying layer picks
+  ## later. Values strings are not `tpl`-rendered, so `{{ .Release.Namespace }}`
+  ## cannot be written into `upstreams` directly; this resolves the name when
+  ## the chart renders, where the namespace IS known.
+  ##
+  ## Names that already contain a dot are treated as fully-qualified and left
+  ## alone, so this composes with cross-namespace or external upstreams.
+  ##
+  ## Independent of `resolver` above: that one chooses WHEN a name is resolved
+  ## (config load vs request time), this one chooses WHAT name is resolved.
+  qualifyUpstreams: false
+  ## Raw nginx directives spliced into the `http { }` block, after the maps and
+  ## before the server blocks. Escape hatch for anything not modelled above.
+  extraHttpConfig: ""
+  ## Raw nginx directives spliced into EVERY generated `server { }` block.
+  extraServerConfig: ""
+
+## @section Proxy behaviour
+##
+## Applied to every generated `location` block. Websocket routes
+## (`upstreams.<name>.routes[].websocket`, default true) get the longer
+## websocket* timeouts instead of the plain read/send pair.
+proxy:
+  ## Odoo attachment uploads routinely exceed nginx's 1m default; 100m is a
+  ## sane ceiling that still bounds memory.
+  clientMaxBodySize: 100m
+  connectTimeout: 30s
+  ## `proxy_read_timeout` / `proxy_send_timeout` for NON-websocket locations.
+  ##
+  ## 180s, NOT nginx's 60s default: the Firestream Odoo image bakes
+  ## `limit_time_real = 150` into odoo.conf, so Odoo will happily spend up to
+  ## 150s on one request. At 60s the proxy gives up first and returns 504 while
+  ## Odoo carries on working for another 90s -- the user sees a gateway error
+  ## for a request that ultimately succeeded, and any write it performed still
+  ## lands. Keep this comfortably ABOVE the app's own hard limit so the app is
+  ## always the thing that decides a request has taken too long.
+  readTimeout: 180s
+  sendTimeout: 180s
+  ## Odoo longpolling holds a connection open for ~55s per poll, and websockets
+  ## idle far longer. 300s is comfortably above both.
+  websocketReadTimeout: 300s
+  websocketSendTimeout: 300s
+  ## Local, non-proxying health endpoint. Also what the probes above target.
+  healthPath: /healthz
+
+## @section Upstreams -- the headline knob
+##
+## One nginx `server { }` block per entry, matched on `server_name <hostname>`:
+##
+##   upstreams:
+##     odoo:
+##       hostname: odoo.example.com
+##       default:                       # the catch-all `location /`
+##         service: odoo
+##         port: 8069
+##       routes:                        # extra `location` blocks
+##         - paths: ["/websocket", "/longpolling"]
+##           service: odoo
+##           port: 8072
+##           websocket: true            # default; long timeouts + Upgrade
+##
+## `hostname` is deliberately a PLAIN SCALAR at `upstreams.<name>.hostname` so a
+## later phase can retarget a deployment branch by merging a one-line values
+## overlay. Do not nest it.
+upstreams: {}

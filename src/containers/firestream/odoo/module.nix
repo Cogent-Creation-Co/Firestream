@@ -62,6 +62,14 @@
     ODOO_PORT_NUMBER = "8069";
     ODOO_LONGPOLLING_PORT_NUMBER = "8072";
 
+    # HTTP worker processes. 0 = threaded mode (one process; websockets are
+    # served on ODOO_PORT_NUMBER and NOTHING BINDS the gevent port). Any value
+    # > 0 puts Odoo in prefork mode, which is the only mode that spawns the
+    # gevent worker and therefore the only mode in which
+    # ODOO_LONGPOLLING_PORT_NUMBER is actually listening. A reverse proxy that
+    # splits /websocket off to the gevent port MUST set this > 0.
+    ODOO_WORKERS = "0";
+
     # Bootstrap configuration
     ODOO_SKIP_BOOTSTRAP = "no";
     ODOO_SKIP_MODULES_UPDATE = "no";
@@ -382,6 +390,20 @@ let
     firestream.waitForPortPkg  # Required by init scripts for database readiness checks
   ];
 
+  # Odoo major version as an integer, e.g. "18.0" -> 18. Every version dir under
+  # ./{15,16,17,18}/module.nix is a thin `args: import ../module.nix args`, so
+  # odooVersion is the only version signal this module gets.
+  odooMajor = lib.toInt (lib.versions.major odooVersion);
+
+  # The conf key naming the websocket/longpolling port was renamed in Odoo 16.
+  # Odoo <= 15 reads `longpolling_port`; >= 16 reads `gevent_port`. Both default
+  # to 8072, which is why emitting only `gevent_port` appeared to work on 15 --
+  # the key was ignored and the built-in default happened to match. Now that the
+  # chart injects ODOO_LONGPOLLING_PORT_NUMBER from `containerPorts.gevent`, that
+  # coincidence no longer holds and a non-default port would be silently dropped
+  # on 15.
+  geventPortKey = if odooMajor >= 16 then "gevent_port" else "longpolling_port";
+
   # Odoo config template with {{PLACEHOLDER}} syntax
   odooConfigTemplate = ''
     [options]
@@ -407,7 +429,14 @@ let
 
     ; HTTP configuration
     http_port = {{ODOO_PORT_NUMBER}}
-    gevent_port = {{ODOO_LONGPOLLING_PORT_NUMBER}}
+    ${geventPortKey} = {{ODOO_LONGPOLLING_PORT_NUMBER}}
+
+    ; HTTP worker processes. MUST be > 0 for gevent_port above to be bound at
+    ; all: Odoo only spawns the gevent (websocket/longpolling) worker in prefork
+    ; mode. With workers = 0 Odoo runs threaded and serves websockets on
+    ; http_port instead, so a proxy pointing /websocket at gevent_port gets
+    ; connection-refused.
+    workers = {{ODOO_WORKERS}}
 
     ; Performance
     limit_time_cpu = 90
@@ -588,6 +617,7 @@ in firestream.mkPythonContainerModule {
         -e "s|{{ODOO_DATABASE_USER}}|''${ODOO_DATABASE_USER:-firestream}|g" \
         -e "s|{{ODOO_PORT_NUMBER}}|''${ODOO_PORT_NUMBER:-8069}|g" \
         -e "s|{{ODOO_LONGPOLLING_PORT_NUMBER}}|''${ODOO_LONGPOLLING_PORT_NUMBER:-8072}|g" \
+        -e "s|{{ODOO_WORKERS}}|''${ODOO_WORKERS:-0}|g" \
         -e "s|{{ODOO_LIST_DB}}|''${list_db_val}|g" \
         -e "s|{{ODOO_LOG_LEVEL}}|''${log_level_val}|g" \
         "$template_file" > "$conf_file"

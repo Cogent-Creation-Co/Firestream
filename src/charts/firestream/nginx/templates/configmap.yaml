@@ -1,0 +1,21 @@
+{{- /*
+Copyright Firestream. MIT License.
+
+The generated nginx.conf. This ConfigMap is mounted over the container's
+config DIRECTORY (/opt/firestream/nginx/config), shadowing the default config
+baked into the image by src/containers/firestream/nginx/module.nix.
+
+The config text itself is built by the "nginx.config" helper in _helpers.tpl.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nginx.configMapName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  nginx.conf: |
+    {{- include "nginx.config" . | nindent 4 }}

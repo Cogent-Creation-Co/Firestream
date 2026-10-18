@@ -1,0 +1,104 @@
+# ---------------------------------------------------------------------------
+# Cloud Build pipeline: build + push the firestream-* images, then deploy all
+# three charts (odoo, nginx, cloudflared) to GKE.
+#
+# Substitutions MUST match config.nix. Connect this file to a Cloud Build
+# trigger in the console (the Pulumi stack already grants the Cloud Build
+# service account the roles it needs).
+#
+# Notes:
+#   * Nix steps run in the official `nixos/nix` image with flakes enabled.
+#   * /workspace is shared across steps; /nix/store is NOT — so each chart
+#     bundle is built and deployed in the SAME nix step (its bin/deploy
+#     references a helm store path that only exists in that step).
+#   * The auth step bakes a bearer-token kubeconfig into /workspace so the
+#     nix/helm step needs no gke-gcloud-auth-plugin on its PATH.
+#   * The namespace and the tunnel-token Secret are NOT created here. Pulumi
+#     owns both — the token exists only as an output of the tunnel resource.
+#     Run `pulumi up` before the first build.
+#   * There is nothing to build or push for cloudflared: it runs Cloudflare's
+#     own upstream image, so the kubelet pulls it from docker.io.
+# ---------------------------------------------------------------------------
+substitutions:
+  _REGION: us-central1
+  _CLUSTER: firestream-edge
+  _NAMESPACE: edge
+  _AR_HOST: us-central1-docker.pkg.dev
+  _AR_REPO: ${PROJECT_ID}/firestream
+  _IMAGE_TAG: latest
+
+steps:
+  # 1. Build the container images to tarballs in /workspace.
+  - id: build-images
+    name: nixos/nix
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        for pkg in odoo-image nginx-image postgresql-image; do
+          nix --extra-experimental-features 'nix-command flakes' \
+            build ".#$pkg" -o "/workspace/$pkg"
+          cp -L "/workspace/$pkg" "/workspace/$pkg.tar.gz"
+        done
+
+  # 2. Load, tag, and push the images to Artifact Registry.
+  - id: push-images
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        push() {
+          local tar="$1" name="$2"
+          local loaded
+          loaded="$(docker load -i "$tar" | sed -n 's/^Loaded image: //p' | head -n1)"
+          docker tag "$loaded" "${_AR_HOST}/${_AR_REPO}/${name}:${_IMAGE_TAG}"
+          docker push "${_AR_HOST}/${_AR_REPO}/${name}:${_IMAGE_TAG}"
+        }
+        push /workspace/odoo-image.tar.gz firestream-odoo
+        push /workspace/nginx-image.tar.gz firestream-nginx
+        push /workspace/postgresql-image.tar.gz firestream-postgresql
+
+  # 3. Authenticate to GKE, bake a token kubeconfig, and sync the Odoo Secrets
+  #    from Secret Manager. (The tunnel token is Pulumi's — see the header.)
+  - id: auth-and-secrets
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud container clusters get-credentials "${_CLUSTER}" \
+          --region "${_REGION}" --project "${PROJECT_ID}"
+        # Replace the exec-plugin credential with a static bearer token so the
+        # downstream nix/helm step authenticates without the auth plugin.
+        ctx="$(kubectl config current-context)"
+        kubectl config set-credentials cb-token --token="$(gcloud auth print-access-token)"
+        kubectl config set-context "$ctx" --user=cb-token
+        cp "$HOME/.kube/config" /workspace/kubeconfig
+        bash scripts/sync-secrets.sh "${_NAMESPACE}"
+
+  # 4. Build and deploy the three chart bundles, in order.
+  #
+  #    Only the odoo -> nginx edge is load bearing, and only when `clusterDns`
+  #    is empty in config.nix: without a resolver nginx resolves proxy_pass
+  #    names at config load and refuses to start if the Service is missing.
+  - id: deploy
+    name: nixos/nix
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        export KUBECONFIG=/workspace/kubeconfig
+        for chart in odoo nginx cloudflared; do
+          nix --extra-experimental-features 'nix-command flakes' \
+            build ".#$chart-chart" -o "/workspace/result-$chart"
+          "/workspace/result-$chart/bin/deploy" --namespace "${_NAMESPACE}"
+        done
+
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 3600s

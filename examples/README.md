@@ -48,6 +48,9 @@ Each app ships as a trio — the *same app* via the *same* `charts.<app>.eval` /
 cluster, plain Docker). The `*-gke` variant is the production shape; the `*-k3s`
 and `*-docker-compose` variants are its local-dev shapes.
 
+The exception is the **Cloudflare edge** example at the bottom, which is about
+composing several charts rather than about one app across three runtimes.
+
 **Odoo** — customization: vendored third-party addons baked into the image.
 
 | Example | Target | Highlights |
@@ -91,6 +94,34 @@ database.
 | [`nextjs-k3s/`](./nextjs-k3s) | Local k3s / k3d | Custom app; side-load 2 images into containerd → helm → port-forward; inline credentials; `local-path` |
 | [`nextjs-docker-compose/`](./nextjs-docker-compose) | Docker Compose | Custom app; reuses Firestream's generated nextjs + postgresql compose stack |
 
+**Cloudflare edge** — customization: *composition*. The first example that
+deploys more than one chart.
+
+Odoo behind the `nginx` reverse proxy behind the `cloudflared` tunnel connector,
+three releases in one namespace. There is no `Ingress`, no LoadBalancer and no
+public port — the connector dials *out* to Cloudflare and traffic arrives back
+through the tunnel, which is why the cloudflared chart renders no Service at
+all.
+
+| Example | Target | Highlights |
+|---------|--------|------------|
+| [`cloudflare-edge-k3s/`](./cloudflare-edge-k3s) | Local k3s / k3d | 3 charts, 1 namespace; `upstreams` routing with Odoo's 8069/8072 split; fake tunnel token so the connector is exercised without a Cloudflare account; differential smoke probes |
+
+Two things it teaches that a single-chart example cannot:
+
+- **Charts that must agree.** nginx's `upstreams` names Odoo's Service and both
+  its ports, and Odoo must be running in the mode that actually binds them
+  (`workers > 0`). Nothing type-checks that agreement across charts, so
+  `config.nix` holds the shared facts once.
+- **Deploy order is a property of the values, not a fixed rule.** With
+  `nginxConfig.resolver` unset, nginx resolves upstream names at config load and
+  refuses to start if a Service is missing — so the backend must be deployed
+  first. Setting the resolver makes the proxy boot regardless and answer 502
+  until the backend appears, which downgrades the ordering from a requirement to
+  a convenience.
+
 Future examples follow the same shape — a root flake + a sparse override + the
 target's plumbing. Start a new one by copying the closest existing example and
-swapping the app name in the `charts.<app>.eval` call.
+swapping the app name in the `charts.<app>.eval` call. For a multi-chart
+example, copy `cloudflare-edge-k3s/`: one `charts.<app>.eval` per chart in the
+flake, one override file each, and a deploy script that sequences them.

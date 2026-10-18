@@ -1,0 +1,26 @@
+# Copyright Firestream. MIT License.
+# A net-new (non-Bitnami) Firestream supported app: the per-namespace reverse
+# proxy that sits between the namespace's edge (a Cloudflare tunnel, an LB, or
+# another proxy) and the application Services beside it.
+apiVersion: v2
+name: nginx
+description: The Firestream per-namespace reverse proxy - terminates plain HTTP from the namespace edge and routes it to application Services, supplying the X-Forwarded-* headers backends such as Odoo (proxy_mode) require.
+type: application
+version: 0.1.0
+appVersion: "1.28.0"
+keywords:
+  - nginx
+  - proxy
+  - reverse-proxy
+  - ingress
+  - firestream
+sources:
+  - https://github.com/Cogent-Creation-Co/Firestream
+dependencies:
+  # `common` only. A proxy has no database and no bundled backing services, so
+  # unlike nextjs/odoo there is no postgresql subchart here.
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x

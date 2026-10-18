@@ -319,13 +319,16 @@ The flake is the source of truth for helm. Each chart at `src/charts/firestream/
 
 **Manifest emission (schema v1):**
 - Each chart emits a `chart-manifest.json` (chart name, version, repo, vendored subchart paths, default `values.yaml`, and a `_meta` block).
-- `_meta.containerRefs` is the per-chart image-injection seam. All 9 charts now inject `firestream-*` images via the canonical pattern in `nix/flake-modules/charts/airflow.nix` (lines 75-137); subchart slots (postgresql/redis) ship on airflow, superset, odoo, jupyterhub.
+- `_meta.containerRefs` is the per-chart image-injection seam. Every chart with a Firestream-built container injects `firestream-*` images via the canonical pattern in `nix/flake-modules/charts/airflow.nix` (lines 75-137); subchart slots (postgresql/redis) ship on airflow, superset, odoo, jupyterhub. `cloudflared` is the exception — `componentPath = [ ]`, catalogue-only.
 - Subchart vendoring helper: `bin/nix/firestream/charts/lib/vendor-subcharts.nix`. Values rendering helper: `bin/nix/firestream/charts/lib/to-values-yaml.nix`.
 
 **Aggregate bundle:**
-- `packages.firestream-charts-bundle` (see `nix/flake-modules/charts/`) is a symlink farm with a top-level `index.json` listing every chart (`charts`), every base chart (`baseCharts`), and the `firestreamStacks.dev` composition (`stacks`).
+- `packages.firestream-charts-bundle` (see `nix/flake-modules/charts/`) is a symlink farm with a top-level `index.json` listing every chart (`charts`), every base chart (`baseCharts`), and the named stack compositions (`stacks`).
 - Default deploy path: `/opt/firestream/charts/`. The dev shell exports `FIRESTREAM_CHARTS_DIR` pointing directly at the bundle's `/nix/store` path (env var only — no out-link is written into the working tree; same for `FIRESTREAM_CI_PROFILE`).
-- 9 charts have typed overlays and are in `firestreamCharts` + `firestreamStacks.dev`: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset`, `odoo`, `seaweedfs`.
+- Charts with typed overlays in `firestreamCharts`: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset`, `odoo`, `seaweedfs`, `nextjs`, `nginx`, `cloudflared`.
+- **Two stacks.** `firestreamStacks.dev` is the local data platform (everything above except `cloudflared`, with `nginx` last). `firestreamStacks.edge` is `[ nginx cloudflared ]` — separate because cloudflared's `TUNNEL_TOKEN` secretKeyRef is deliberately non-optional and it deploys `atomic`/`wait`/5m, so on a cluster with no Cloudflare tunnel provisioned it blocks and then rolls back. A local data platform has no business dialling the Cloudflare edge.
+- **`cloudflared` is a chart-only app**: no `src/containers/firestream/cloudflared/`, no `firestreamImages.cloudflared`, no compose output. It runs Cloudflare's own image, registered through the `componentPath = [ ]` catalogue-only mode of `_meta.containerRefs` (manifest records it, no values overlay). See `docs/firestream-supported-app.md` §1. The `cloudflared-render-fidelity` check asserts the manifest's triple matches what the chart renders — nothing else ties the two copies together.
+- **Namespace lifecycle is an option.** `_meta.createNamespace` (default `true`) drives BOTH `--create-namespace` on the bundle's `bin/deploy` and `release.createNamespace` in `chart-manifest.json` (which `helm_lifecycle/executor.rs` reads), so the shell path and the Rust path cannot disagree. Set it `false` when the deploying layer owns the namespace — e.g. a Pulumi stack that also attaches the ResourceQuota, LimitRange, NetworkPolicy and Workload Identity ServiceAccount.
 - **SeaweedFS is the exception to the Bitnami pattern.** It is a non-Bitnami, Apache-2.0 chart (forked from upstream `seaweedfs/seaweedfs`) whose pods invoke the `weed` binary directly via a `command:` block — so it uses NONE of the Bitnami-compat machinery: no `perContainerHelpers`, no `libhelpers<chart>.sh` emission, no `extraEnvVars` path-remaps, no `firestreamPathOverrides`, and no `global.security.allowInsecureImages` guard. The container is simply "`weed` on PATH". Image injection still uses the canonical `_meta.containerRefs` seam (`componentPath = [ "image" ]` → `.Values.image.{registry,repository,tag}`). SeaweedFS is the **default local S3 object store**: it is deployed FIRST in `firestreamStacks.dev` (object store up before consumers), runs all-in-one single-pod (`weed server -master -volume -filer -s3`) with S3 on 8333, auth on, default bucket `firestream`, creds `firestream`/`firestream-secret`. Its `S3_LOCAL_*` env (`S3_LOCAL_ENDPOINT_URL`, `S3_LOCAL_ACCESS_KEY_ID`, `S3_LOCAL_SECRET_ACCESS_KEY`, `S3_LOCAL_BUCKET_NAME`, `S3_LOCAL_DEFAULT_REGION`) is injected into the spark and airflow charts so Spark/`etl_lib` consume it out of the box (data-driven; no Rust/Python change). Chart data is `emptyDir` by default (ephemeral — fine for dev; a PVC toggle is a production follow-on).
 
 **Two chart outputs per app (both downstream-importable):**
@@ -370,11 +373,11 @@ firestream helm deploy <chart> --charts-dir /custom/path
 The `firestream-e2e-k8s` crate (`src/lib/rust/firestream-e2e-k8s/`) provides per-chart fresh-cluster k3d e2e tests that drive the same `deploy_chart_lifecycle` path the CLI uses. Sister crate to `firestream-e2e-core` (shared primitives) and the docker `firestream/tests/e2e.rs` harness.
 
 **Run via make**:
-- `make test-e2e-k8s` — full 9-chart sweep, serialized, fresh cluster per chart.
-- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs).
+- `make test-e2e-k8s` — full 10-chart sweep, serialized, fresh cluster per chart.
+- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs/nginx). No `cloudflared` arm: the connector reports Ready only once it registers with the Cloudflare edge, so it cannot come up in a hermetic cluster.
 
 **Env contract** (defaults in parens):
-- `FIRESTREAM_E2E_K8S_STACKS=all|csv` — subset filter (canonical 9)
+- `FIRESTREAM_E2E_K8S_STACKS=all|csv` — subset filter (canonical 10)
 - `FIRESTREAM_E2E_K8S_KEEP=1` — skip teardown (unset)
 - `FIRESTREAM_E2E_K8S_STRICT=1` — skip-gate → hard fail (unset)
 - `FIRESTREAM_E2E_K8S_TIMEOUT_SECS` — per-chart deadline (600)
@@ -390,11 +393,11 @@ Both harnesses above (the k8s one, and the docker one at `src/lib/rust/firestrea
 
 ```bash
 make ci-e2e-dry-run     # print the chain; executes nothing
-make ci-e2e             # run it — HOURS, 10 k3d clusters, 8 compose stacks
+make ci-e2e             # run it — HOURS, 11 k3d clusters, 8 compose stacks
 FIRESTREAM_E2E_STRICT=1 FIRESTREAM_E2E_K8S_STRICT=1 make ci-e2e   # unattended
 ```
 
-**Shape.** `bin/nix/firestream/ci/profile.nix` declares 18 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×10 (the canonical 9 plus `pg-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
+**Shape.** `bin/nix/firestream/ci/profile.nix` declares 19 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×11 (the canonical 10 plus `pg-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
 
 **Why chained phases and not parallel tasks in one phase.** `firestream_ci::pipeline::Pipeline::run` fans a phase's tasks out with `join_all` and **no concurrency cap**. Both harnesses hold a process-wide mutex (`harness_lock()` / `e2e_lock()`) precisely because they create real k3d clusters and bind host ports; k3d name/port collisions are already engineered away (random cluster suffix, `127.0.0.1` API bind, `pick_ephemeral_port()`), so N concurrent runs would not *collide* — they would just be N k3s servers plus N full data stacks on one machine. So the serialisation is done at profile level: one task per phase, phases chained through `dependsOn`. Phases run strictly one at a time.
 

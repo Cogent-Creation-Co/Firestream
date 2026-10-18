@@ -1,0 +1,36 @@
+CHART NAME: {{ .Chart.Name }}
+CHART VERSION: {{ .Chart.Version }}
+APP VERSION: {{ .Chart.AppVersion }}
+
+The Firestream nginx reverse proxy has been deployed.
+
+Service (point your namespace edge -- e.g. a Cloudflare tunnel -- at this):
+
+    http://{{ include "common.names.fullname" . }}.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:{{ .Values.service.ports.http }}
+
+{{ if .Values.upstreams -}}
+Configured upstreams:
+{{ range $name, $upstream := .Values.upstreams }}
+  {{ $name }}  ->  Host: {{ $upstream.hostname }}
+      /  -> {{ $upstream.default.service }}:{{ $upstream.default.port }}
+  {{- range $route := ($upstream.routes | default list) }}
+  {{- range $path := $route.paths }}
+      {{ $path }} -> {{ $route.service }}:{{ $route.port }}
+  {{- end }}
+  {{- end }}
+{{ end }}
+{{- else -}}
+WARNING: no upstreams are configured, so every request returns 404. Set
+`upstreams` (see values.yaml) to route traffic, e.g.:
+
+    upstreams:
+      odoo:
+        hostname: odoo.example.com
+        default: { service: odoo, port: 8069 }
+        routes:
+          - paths: ["/websocket", "/longpolling"]
+            service: odoo
+            port: 8072
+{{- end }}
+
+Readiness / liveness endpoint (served locally, never proxied): {{ .Values.proxy.healthPath }}

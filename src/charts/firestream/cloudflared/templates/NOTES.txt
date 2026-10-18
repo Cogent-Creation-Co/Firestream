@@ -1,0 +1,44 @@
+CHART NAME: {{ .Chart.Name }}
+CHART VERSION: {{ .Chart.Version }}
+APP VERSION: {{ .Chart.AppVersion }}
+
+The Firestream Cloudflare Tunnel connector has been deployed with
+{{ .Values.replicaCount }} replica(s) in namespace {{ include "common.names.namespace" . }}.
+
+This chart deploys NO Service and NO ConfigMap, by design:
+
+  * cloudflared only ever dials OUT to the Cloudflare edge, so nothing needs to
+    reach it - there is no Service.
+  * the tunnel's ingress rules are managed REMOTELY through the Cloudflare API
+    (ZeroTrustTunnelCloudflaredConfig), not from a mounted config.yaml - there
+    is no ConfigMap and no credentials file.
+
+REQUIRED - the tunnel token Secret:
+
+    kubectl -n {{ include "common.names.namespace" . }} get secret {{ include "cloudflared.tunnelSecretName" . }}
+
+It must contain the key `{{ .Values.tunnelTokenSecretKey }}` holding the tunnel token
+issued by Cloudflare. Create it from your deploying layer (Pulumi) alongside
+the tunnel itself; this chart never creates or templates it. Until it exists
+the pods stay in CreateContainerConfigError.
+{{- if not .Values.existingSecret }}
+
+(`existingSecret` is unset, so the conventional name `{{ include "cloudflared.tunnelSecretName" . }}`
+is used. Set `existingSecret` to point at a differently-named Secret.)
+{{- end }}
+
+Remote configuration should route the tunnel's public hostname(s) at the
+namespace's reverse proxy, i.e. an ingress rule whose service is:
+
+    http://<release>-nginx.{{ include "common.names.namespace" . }}.svc.{{ .Values.clusterDomain }}:80
+
+Check connector health (there is no Service; port-forward a pod directly):
+{{ if .Values.metrics.enabled }}
+    kubectl -n {{ include "common.names.namespace" . }} port-forward deploy/{{ include "common.names.fullname" . }} {{ .Values.containerPorts.metrics }}:{{ .Values.containerPorts.metrics }}
+    curl -sv localhost:{{ .Values.containerPorts.metrics }}/ready     # 200 once registered with the edge
+    curl -s  localhost:{{ .Values.containerPorts.metrics }}/metrics
+{{- else }}
+    WARNING: `metrics.enabled` is false, so cloudflared's diagnostic server is
+    not running and ALL PROBES ARE DISABLED. A wedged connector will not be
+    detected or restarted.
+{{- end }}

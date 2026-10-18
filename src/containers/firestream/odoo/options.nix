@@ -130,6 +130,46 @@ in
     '';
   };
 
+  # ---------------------------------------------------------------------------
+  # THE gevent-port switch. Odoo has two server modes and they expose DIFFERENT
+  # sockets:
+  #
+  #   workers = 0  ThreadedServer. ONE process, binds only http_port, and
+  #                serves websocket/longpolling traffic ON THAT SAME PORT.
+  #                gevent_port is written into odoo.conf and then ignored --
+  #                nothing ever listens on it.
+  #   workers > 0  PreforkServer. Spawns N HTTP workers plus a separate gevent
+  #                worker, and THAT is what binds gevent_port (8072).
+  #
+  # So any deployment whose reverse proxy peels /websocket and /longpolling off
+  # to 8072 -- which is the standard Odoo-behind-nginx layout, and what the
+  # firestream nginx chart generates -- is broken unless this is > 0: every
+  # websocket request gets connection-refused (502 through the proxy).
+  #
+  # The default stays 0 because that is the historical behaviour and it is the
+  # right choice for the single-container docker-compose loop, where nothing
+  # splits ports and one process is cheaper.
+  # ---------------------------------------------------------------------------
+  options.odoo.workers = lib.mkOption {
+    type = lib.types.ints.unsigned;
+    default = 0;
+    example = 2;
+    description = ''
+      Number of Odoo HTTP worker processes (`workers` in odoo.conf), exported as
+      ODOO_WORKERS.
+
+      `0` runs Odoo in threaded mode: a single process bound to
+      `ODOO_PORT_NUMBER` only, serving websockets on that port. **The gevent /
+      longpolling port (`ODOO_LONGPOLLING_PORT_NUMBER`, 8072) is NOT bound in
+      this mode.**
+
+      Any value greater than `0` switches Odoo to prefork mode, which spawns the
+      gevent worker and binds 8072. Set this whenever something -- typically a
+      reverse proxy routing `/websocket` and `/longpolling` -- expects 8072 to
+      answer.
+    '';
+  };
+
   config.odoo = {
     # Forward the vendored-addons list to module.nix through the factory's
     # extraModuleArgs seam (eval-container.nix splices this into moduleArgs).
@@ -180,6 +220,11 @@ in
       # Port configuration
       ODOO_PORT_NUMBER = "8069";
       ODOO_LONGPOLLING_PORT_NUMBER = "8072";
+
+      # HTTP worker processes; see module.nix. 0 = threaded mode, and the gevent
+      # port is NOT bound. Set > 0 (via config.odoo.workers) whenever anything
+      # depends on ODOO_LONGPOLLING_PORT_NUMBER being reachable.
+      ODOO_WORKERS = builtins.toString config.odoo.workers;
 
       # Bootstrap configuration
       ODOO_SKIP_BOOTSTRAP = "no";

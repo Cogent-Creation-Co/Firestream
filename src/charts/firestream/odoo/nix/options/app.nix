@@ -25,10 +25,41 @@ in {
       description = "Number of Odoo replicas to deploy (ReadWriteMany PVC required if > 1)";
     };
 
+    workers = mkOption {
+      type = types.nullOr types.ints.unsigned;
+      default = null;
+      example = 2;
+      description = ''
+        Number of Odoo HTTP worker processes (`workers` in odoo.conf), emitted
+        as the ODOO_WORKERS env var (chart default 0).
+
+        THE gevent-port switch, and the single setting that controls it. `0`
+        runs Odoo threaded: one process bound to `containerPorts.http` only,
+        serving websockets on that port, with **`containerPorts.gevent` (8072)
+        NOT bound by anything**. Any value above 0 switches Odoo to prefork,
+        which spawns the gevent worker that binds 8072.
+
+        Because the container port, the Service port and the env var are all
+        gated on this one value, they cannot drift apart. Set it above 0
+        whenever something expects 8072 to answer -- typically a reverse proxy
+        routing `/websocket` and `/longpolling`, which is exactly what the
+        firestream nginx chart's `upstreams.<name>.routes` generates.
+
+        Note this is a per-DEPLOYMENT choice, not an image choice: the same
+        container also has `config.odoo.workers`
+        (src/containers/firestream/odoo/options.nix) for the docker-compose
+        loop, and the chart's env wins over the image's baked default.
+      '';
+    };
+
     containerPorts = mkOption {
       type = types.nullOr (types.attrsOf (types.either types.str types.int));
       default = null;
-      description = "Container ports for the Odoo pod (e.g. { http = 8069; })";
+      description = ''
+        Container ports for the Odoo pod (e.g. { http = 8069; gevent = 8072; }).
+
+        `gevent` is only declared on the pod when `workers` > 0 -- see there.
+      '';
     };
 
     extraContainerPorts = mkOption {

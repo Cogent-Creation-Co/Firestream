@@ -113,6 +113,34 @@
         "superset"
         "odoo"
         "nextjs"
+        # nginx LAST, deliberately. It is the namespace's edge proxy, so it has
+        # no data-plane dependants to deploy before -- but with the default
+        # (empty) `nginxConfig.resolver` nginx resolves each `proxy_pass` name
+        # at CONFIG LOAD and refuses to start with "host not found in upstream"
+        # if a backend Service is missing. Deploying it after the apps it fronts
+        # guarantees those Services exist. (Set `nginxConfig.resolver` to the
+        # cluster DNS address to lift that constraint; the ordering then only
+        # affects how quickly the edge becomes useful, not whether it starts.)
+        "nginx"
+      ];
+
+      # The edge stack. SEPARATE FROM `dev` ON PURPOSE, and the reason is
+      # cloudflared: its TUNNEL_TOKEN secretKeyRef is deliberately not
+      # `optional`, and it deploys with `atomic`/`wait`/5m
+      # (src/charts/firestream/cloudflared/nix/default.nix). On a local cluster,
+      # where nothing has provisioned a Cloudflare tunnel, the pods sit in
+      # CreateContainerConfigError until helm gives up and rolls back -- which
+      # would take the whole `dev` deploy down with it. A local data platform
+      # has no business dialling out to the Cloudflare edge, so `dev` no longer
+      # lists it.
+      #
+      # Order within the stack: nginx first so the connector's in-cluster target
+      # exists before the tunnel goes live (it would otherwise briefly answer
+      # 502 -- the edge resolves ingress rules at REQUEST time, so cloudflared
+      # itself starts happily with nothing behind it).
+      firestreamStacks.edge = [
+        "nginx"
+        "cloudflared"
       ];
 
       packages.firestream-charts-bundle = pkgs.runCommand "firestream-charts-bundle"

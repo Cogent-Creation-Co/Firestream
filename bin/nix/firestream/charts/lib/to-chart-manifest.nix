@@ -47,7 +47,11 @@ let
     release = {
       namespace = cfg._meta.namespace;
       releaseName = cfg._meta.releaseName;
-      createNamespace = true;
+      # Same option that drives `--create-namespace` on the emitted bin/deploy
+      # (eval-chart.nix). Both sinks read `cfg._meta.createNamespace` so the
+      # shell path and the Rust path (helm_lifecycle/executor.rs) cannot
+      # disagree about who owns namespace lifecycle.
+      createNamespace = cfg._meta.createNamespace;
     };
     bundle = bundlePaths;
     deployment = {

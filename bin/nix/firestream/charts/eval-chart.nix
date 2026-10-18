@@ -70,6 +70,24 @@ let
               default = namespace;
               description = "Kubernetes namespace the release is deployed into.";
             };
+            createNamespace = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = ''
+                Whether the deploying layer creates the namespace: `--create-namespace`
+                on the emitted `bin/deploy`, and `release.createNamespace` in
+                chart-manifest.json (which the Rust executor reads).
+
+                Set false when something else OWNS namespace lifecycle -- a Pulumi
+                stack that also attaches the ResourceQuota, LimitRange,
+                NetworkPolicy and Workload Identity ServiceAccount. Letting Helm
+                conjure a bare, unquota'd namespace would race that.
+
+                Default true because the local flows depend on it: every `*-k3s`
+                example runs `./result/bin/deploy --namespace "$NS"` with nothing
+                having created `$NS` first.
+              '';
+            };
 
             # Helm CLI knobs. These surface as `deployment.*` in the manifest
             # (chart-manifest.json) and drive the Rust deploy layer (Agent D).
@@ -261,6 +279,24 @@ let
 
   cfg = evaled.config.${name};
 
+  # The release-identity seam. `_meta.releaseName`/`_meta.namespace` are settable
+  # options whose DEFAULTS are the `releaseName`/`namespace` function args (which
+  # themselves default to `name`). Everything downstream — the render gate, the
+  # deploy script, chart-manifest.json — must read the EVALUATED values, not the
+  # closure-captured function args, or a consumer setting
+  # `config.<name>._meta.namespace` would move the manifest but not the deploy.
+  # No recursion risk: the option defaults depend on the args only, never on the
+  # option itself.
+  effectiveRelease   = cfg._meta.releaseName;
+  effectiveNamespace = cfg._meta.namespace;
+
+  # Namespace lifecycle. Read from the evaluated option for the same reason as
+  # the two above: `bin/deploy` and chart-manifest.json must never disagree
+  # about who creates the namespace, or the shell path and the Rust path
+  # (helm_lifecycle/executor.rs) do different things from one bundle.
+  createNamespaceFlag =
+    lib.optionalString cfg._meta.createNamespace "--create-namespace";
+
   # Phase 2: merge container-registry-derived image overrides into the values
   # tree before serialisation. `cfg._meta.containerRefs` is populated by the
   # chart's flake-module from `firestreamImages.<name>` (see e.g.
@@ -370,7 +406,8 @@ let
 
     # 5. Build-gate: render the chart fully offline. No --dependency-update.
     export HOME="$TMPDIR"
-    helm template ${lib.escapeShellArg releaseName} "$out/chart" \
+    helm template ${lib.escapeShellArg effectiveRelease} "$out/chart" \
+      --namespace ${lib.escapeShellArg effectiveNamespace} \
       -f "$out/values.yaml" ${kubeVersionFlag} > "$out/rendered.yaml"
 
     # 6. Materialise chart-manifest.json. The template carries `@@BUNDLE_OUT@@`
@@ -382,11 +419,18 @@ let
     sed "s|@@BUNDLE_OUT@@|$out|g" ${chartManifestTemplate} > "$out/chart-manifest.json"
 
     # 7. Emit an executable deploy script.
+    #    `--create-namespace` is present iff `_meta.createNamespace` (default
+    #    true). A deploying layer that OWNS namespace lifecycle -- Pulumi, which
+    #    also attaches the ResourceQuota, LimitRange, NetworkPolicy and Workload
+    #    Identity ServiceAccount -- sets it false so Helm cannot race that by
+    #    conjuring a bare, unquota'd namespace. The same option drives
+    #    `release.createNamespace` in chart-manifest.json, so this script and the
+    #    Rust deploy path never disagree.
     cat > "$out/bin/deploy" <<EOF
     #!${pkgs.runtimeShell}
-    exec ${helm}/bin/helm upgrade --install ${lib.escapeShellArg releaseName} \
+    exec ${helm}/bin/helm upgrade --install ${lib.escapeShellArg effectiveRelease} \
       "$out/chart" \
-      --namespace ${lib.escapeShellArg namespace} --create-namespace \
+      --namespace ${lib.escapeShellArg effectiveNamespace} ${createNamespaceFlag} \
       -f "$out/values.yaml" "\$@"
     EOF
     chmod +x "$out/bin/deploy"

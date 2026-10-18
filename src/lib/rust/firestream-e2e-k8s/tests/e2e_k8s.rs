@@ -113,3 +113,14 @@ fn e2e_k8s_pg_backup() {
 // The harness probe GETs the S3 gateway on :8333 (see
 // firestream_e2e_core::k8s::probes `for_chart` "seaweedfs" arm).
 stack_test_k8s!(e2e_k8s_seaweedfs, "seaweedfs");
+
+// ---- Edge proxy (non-Bitnami chart) ----
+// The per-namespace reverse proxy. Deployed with its default `upstreams: {}`,
+// so it fronts nothing and answers its own 404 — which is the point: the probe
+// hits `/healthz`, the chart's local non-proxying health location, proving the
+// proxy comes up and stays Ready independently of any backend.
+//
+// Its sibling `cloudflared` has NO test here on purpose: the connector reports
+// Ready only once it has registered with the Cloudflare edge, so it cannot come
+// up in a hermetic cluster at all.
+stack_test_k8s!(e2e_k8s_nginx, "nginx");
