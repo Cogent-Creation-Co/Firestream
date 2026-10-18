@@ -1,13 +1,26 @@
 { pkgs, firestream }:
 
+# End-to-end integration test: builds a sample application using the Firestream
+# module system, exercising several modules together.
+# Copyright Firestream. MIT License.
+#
+# NOTE on scope: this scenario previously called `persist_dir`, `persist_file`,
+# `generate_start_command`, `backup_persisted_data`, `yml_key_set` and
+# `is_dir_persisted` — none of which exist anywhere in the tree, and none of
+# which had a caller. Those steps were removed rather than implemented; see
+# IMPLEMENTATION_STATUS.md. It also called the real `persist_app` /
+# `is_app_initialized` with no arguments, relying on ambient $APP_NAME and
+# $PERSISTENCE_ROOT that those functions never read.
+#
+# Fixtures use printf rather than indented heredocs: an un-dedented heredoc in
+# this Nix string leaves two leading spaces on every line, which breaks both
+# INI parsing and exact-match assertions.
+
 pkgs.runCommand "test-integration" {} ''
   export HOME=$TMPDIR
 
   cat > $TMPDIR/test.sh << 'SCRIPT'
-  # This is an end-to-end integration test that creates a sample application
-  # using the Firestream module system
-
-  # Import all modules
+  # Import all modules used by the scenario.
   ${firestream.lib.log.functions}
   ${firestream.lib.validations.functions}
   ${firestream.lib.fs.functions}
@@ -15,11 +28,12 @@ pkgs.runCommand "test-integration" {} ''
   ${firestream.lib.net.functions}
   ${firestream.lib.service.functions}
   ${firestream.lib.file.functions}
+  ${firestream.lib.config.functions}
   ${firestream.lib.persistence.functions}
 
   info "Starting integration test..."
 
-  # Test 1: Create application directory structure
+  # ---- 1. Application directory structure ----
   export APP_NAME="myapp"
   export APP_VERSION="1.0.0"
   export APP_HOME="$TMPDIR/myapp"
@@ -36,101 +50,90 @@ pkgs.runCommand "test-integration" {} ''
   [[ -d "$APP_HOME" ]] || { error "Failed to create APP_HOME"; exit 1; }
   [[ -d "$APP_CONF_DIR" ]] || { error "Failed to create APP_CONF_DIR"; exit 1; }
 
-  # Test 2: Create and configure config files
+  # ---- 2. Config file creation + update ----
   info "Creating configuration files..."
   config_file="$APP_CONF_DIR/app.conf"
-  cat > "$config_file" << 'EOF'
-  [server]
-  port=8080
-  host=localhost
+  printf '[server]\nport = 8080\nhost = localhost\n\n[database]\nurl = postgresql://localhost/mydb\n' > "$config_file"
 
-  [database]
-  url=postgresql://localhost/mydb
-  EOF
-
-  # Validate and update configuration
   ini_file_set "$config_file" "server" "port" "9090"
-  result=$(grep -A1 "\[server\]" "$config_file" | grep "port")
-  [[ "$result" == *"9090"* ]] || { error "Config update failed"; exit 1; }
+  [[ "$(ini_get "server" "port" "$config_file")" == "9090" ]] \
+    || { error "Config update failed"; exit 1; }
+  # The other section must survive the edit.
+  [[ "$(ini_get "database" "url" "$config_file")" == "postgresql://localhost/mydb" ]] \
+    || { error "ini_file_set disturbed an unrelated section"; exit 1; }
 
-  # Test 3: Validate configuration values
+  # ---- 3. Validate configuration values ----
   info "Validating configuration..."
   validate_port 9090 || { error "Port validation failed"; exit 1; }
+  ! validate_port 0 2>/dev/null || { error "Port 0 should be rejected"; exit 1; }
 
-  # Test 4: Setup persistence
+  # ---- 4. Persistence round-trip ----
   info "Setting up persistence..."
-  export PERSISTENCE_ROOT="$TMPDIR/persistence"
-  persist_app || { error "Failed to persist app"; exit 1; }
-  persist_dir "$APP_DATA_DIR" "data" || { error "Failed to persist data dir"; exit 1; }
-  persist_file "$config_file" "config" || { error "Failed to persist config"; exit 1; }
+  persistence_root="$TMPDIR/persistence"
+  state_root="$TMPDIR/state"
+  ensure_dir_exists "$persistence_root"
+  ensure_dir_exists "$state_root"
 
-  is_app_initialized || { error "App should be initialized"; exit 1; }
+  echo "payload" > "$APP_DATA_DIR/payload.txt"
 
-  # Test 5: Create service simulation
+  # persist_app <app> <source_dir> <volume_dir>
+  persist_app "$APP_NAME" "$APP_DATA_DIR" "$persistence_root" \
+    || { error "Failed to persist app"; exit 1; }
+  [[ -f "$persistence_root/payload.txt" ]] || { error "Persisted payload missing"; exit 1; }
+
+  mark_app_initialized "$APP_NAME" "$state_root" || { error "Failed to mark initialized"; exit 1; }
+  is_app_initialized "$APP_NAME" "$state_root" || { error "App should be initialized"; exit 1; }
+
+  # Wipe and restore.
+  rm -rf "$APP_DATA_DIR"
+  ensure_dir_exists "$APP_DATA_DIR"
+  restore_persisted_app "$APP_NAME" "$APP_DATA_DIR" "$persistence_root" \
+    || { error "Failed to restore app"; exit 1; }
+  [[ -e "$APP_DATA_DIR/payload.txt" ]] || { error "Restored payload missing"; exit 1; }
+
+  # ---- 5. Service lifecycle against a real process ----
   info "Setting up service..."
-  export SERVICE_NAME="$APP_NAME"
-  export SERVICE_EXEC="$APP_HOME/bin/myapp"
-  export SERVICE_ARGS="--config $config_file"
-  export SERVICE_PID_FILE="$APP_HOME/myapp.pid"
+  pid_file="$APP_HOME/myapp.pid"
+  ${pkgs.coreutils}/bin/sleep 60 &
+  echo $! > "$pid_file"
+  [[ "$(get_pid_from_file "$pid_file")" == "$(cat "$pid_file")" ]] \
+    || { error "get_pid_from_file mismatch"; exit 1; }
+  stop_service_using_pid "$pid_file" || { error "Failed to stop service"; exit 1; }
 
-  # Create dummy executable
-  mkdir -p "$APP_HOME/bin"
-  cat > "$SERVICE_EXEC" << 'EXEC'
-  #!/usr/bin/env bash
-  echo $$ > $SERVICE_PID_FILE
-  while true; do sleep 1; done
-  EXEC
-  chmod +x "$SERVICE_EXEC"
-
-  # Generate start command
-  start_cmd=$(generate_start_command)
-  [[ "$start_cmd" == *"$SERVICE_EXEC"* ]] || { error "Start command generation failed"; exit 1; }
-
-  # Test 6: Network configuration
+  # ---- 6. Network utilities ----
   info "Testing network utilities..."
-  parse_uri "http://localhost:9090/api/v1" uri
-  [[ "''${uri[scheme]}" == "http" ]] || { error "URI parsing failed"; exit 1; }
-  [[ "''${uri[port]}" == "9090" ]] || { error "Port parsing failed"; exit 1; }
+  [[ "$(parse_uri "http://localhost:9090/api/v1" scheme)" == "http" ]] || { error "URI parsing failed"; exit 1; }
+  [[ "$(parse_uri "http://localhost:9090/api/v1" port)" == "9090" ]] || { error "Port parsing failed"; exit 1; }
+  [[ "$(parse_uri "http://localhost:9090/api/v1" path)" == "/api/v1" ]] || { error "Path parsing failed"; exit 1; }
 
-  # Test 7: File operations
+  # ---- 7. File operations ----
   info "Testing file operations..."
   data_file="$APP_DATA_DIR/data.txt"
   echo "initial data" > "$data_file"
   replace_in_file "$data_file" "initial" "updated"
   [[ "$(cat $data_file)" == "updated data" ]] || { error "File replacement failed"; exit 1; }
 
-  # Test 8: Logging integration
+  # ---- 8. Logging integration ----
   info "Testing logging system..."
   log_file="$APP_LOG_DIR/app.log"
   echo "Application started" > "$log_file"
   echo "Initialization complete" >> "$log_file"
-
-  # Wait for log entry
   wait_for_log_entry "Initialization complete" "$log_file" 2 || { error "Log wait failed"; exit 1; }
 
-  # Test 9: Permission management
+  # ---- 9. Permission management ----
   info "Setting permissions..."
   configure_permissions_ownership "$APP_HOME" -d "755" -f "644"
-
-  # Verify directory permissions
-  perms=$(stat -c "%a" "$APP_HOME" 2>/dev/null || stat -f "%Lp" "$APP_HOME")
+  perms=$(${pkgs.coreutils}/bin/stat -c "%a" "$APP_HOME" 2>/dev/null || true)
   [[ "$perms" == "755" ]] || { warn "Unexpected directory permissions: $perms"; }
 
-  # Test 10: Backup and restore
-  info "Testing backup and restore..."
-  backup_dir="$TMPDIR/backup"
-  backup_persisted_data "$backup_dir" || { error "Backup failed"; exit 1; }
-  [[ -d "$backup_dir" ]] || { error "Backup directory not created"; exit 1; }
-
-  # Test 11: Environment validation
+  # ---- 10. Environment validation ----
   info "Validating environment..."
   export TEST_ENABLED="yes"
   is_boolean_yes "$TEST_ENABLED" || { error "Boolean validation failed"; exit 1; }
-
   export TEST_PORT="9090"
   is_positive_int "$TEST_PORT" || { error "Integer validation failed"; exit 1; }
 
-  # Test 12: System information
+  # ---- 11. System information ----
   info "Gathering system information..."
   total_cpus=$(get_total_cpus)
   [[ "$total_cpus" -gt 0 ]] || { error "Failed to get CPU count"; exit 1; }
@@ -140,59 +143,39 @@ pkgs.runCommand "test-integration" {} ''
   [[ "$total_mem" -gt 0 ]] || { error "Failed to get memory"; exit 1; }
   info "System has $total_mem MB memory"
 
-  # Test 13: Cleanup test
+  os_name=$(get_os_metadata --os)
+  [[ -n "$os_name" ]] || { error "Failed to get OS metadata"; exit 1; }
+  info "OS: $os_name"
+
+  # ---- 12. Cleanup / emptiness predicates ----
   info "Testing cleanup operations..."
-  test_temp_dir="$TMPDIR/temp_test"
-  mkdir -p "$test_temp_dir"
-  echo "temp" > "$test_temp_dir/file.txt"
+  temp_dir="$TMPDIR/temp_test"
+  mkdir -p "$temp_dir"
+  echo "temp" > "$temp_dir/file.txt"
+  ! is_dir_empty "$temp_dir" || { error "Directory should not be empty"; exit 1; }
+  rm -rf "$temp_dir"/*
+  is_dir_empty "$temp_dir" || { error "Directory should be empty"; exit 1; }
 
-  # Verify directory is not empty
-  ! is_dir_empty "$test_temp_dir" || { error "Directory should not be empty"; exit 1; }
-
-  # Remove content
-  rm -rf "$test_temp_dir"/*
-
-  # Verify directory is empty
-  is_dir_empty "$test_temp_dir" || { error "Directory should be empty"; exit 1; }
-
-  # Test 14: Multi-module interaction
+  # ---- 13. Multi-module interaction ----
   info "Testing multi-module interaction..."
+  scenario_file="$APP_CONF_DIR/scenario.ini"
+  printf '[application]\nname = myapp\nport = 8080\ndebug = false\n' > "$scenario_file"
 
-  # Create a scenario combining log, file, and validation modules
-  scenario_file="$APP_CONF_DIR/scenario.yml"
-  cat > "$scenario_file" << 'YML'
-  application:
-    name: myapp
-    port: 8080
-    debug: false
-  YML
-
-  # Read and validate
-  port_line=$(grep "port:" "$scenario_file")
-  port_value=$(echo "$port_line" | sed 's/.*: //')
+  port_value=$(ini_get "application" "port" "$scenario_file")
   validate_port "$port_value" || { error "Scenario port validation failed"; exit 1; }
 
-  # Update configuration
-  yml_key_set "$scenario_file" "application.debug" "true"
-  debug_line=$(grep "debug:" "$scenario_file")
-  [[ "$debug_line" == *"true"* ]] || { error "Scenario debug update failed"; exit 1; }
-
-  # Log the change
+  ini_file_set "$scenario_file" "application" "debug" "true"
+  [[ "$(ini_get "application" "debug" "$scenario_file")" == "true" ]] \
+    || { error "Scenario debug update failed"; exit 1; }
   info "Updated debug setting in $scenario_file"
 
-  # Test 15: Final verification
+  # ---- 14. Final verification ----
   info "Running final verification..."
-
-  # Verify all created artifacts exist
   [[ -f "$config_file" ]] || { error "Config file missing"; exit 1; }
   [[ -f "$data_file" ]] || { error "Data file missing"; exit 1; }
   [[ -f "$log_file" ]] || { error "Log file missing"; exit 1; }
   [[ -f "$scenario_file" ]] || { error "Scenario file missing"; exit 1; }
-  [[ -d "$backup_dir" ]] || { error "Backup directory missing"; exit 1; }
-
-  # Verify persistence
-  is_app_initialized || { error "App not initialized"; exit 1; }
-  is_dir_persisted "$APP_DATA_DIR" || { error "Data dir not persisted"; exit 1; }
+  is_app_initialized "$APP_NAME" "$state_root" || { error "App not initialized"; exit 1; }
 
   info "================================================"
   info "Integration test completed successfully!"
@@ -202,8 +185,7 @@ pkgs.runCommand "test-integration" {} ''
   info "Config:         $config_file"
   info "Data:           $APP_DATA_DIR"
   info "Logs:           $APP_LOG_DIR"
-  info "Persistence:    $PERSISTENCE_ROOT"
-  info "Backup:         $backup_dir"
+  info "Persistence:    $persistence_root"
   info "================================================"
 
   echo "All integration tests passed!"

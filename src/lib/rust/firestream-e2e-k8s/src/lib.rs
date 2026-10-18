@@ -29,6 +29,7 @@
 //! `FIRESTREAM_E2E_K8S_PRELOAD`).
 
 pub mod deploy;
+pub mod diagnostics;
 pub mod env;
 pub mod harness;
 pub mod pg_backup;

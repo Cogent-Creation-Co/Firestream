@@ -11,6 +11,7 @@ use crate::progress::{BuildPhase, BuildProgress};
 use crate::strategy::{find_repo_root, BoxedProgressCallback, BuildMode, BuildStrategy, ContainerBuildStrategy};
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
@@ -29,23 +30,51 @@ impl NativeNixStrategy {
     }
 
     /// Run the nix build command
+    ///
+    /// ## Why this spawns instead of calling `.output()`
+    ///
+    /// `.output()` buffers **both** streams until the child exits. A cold Spark
+    /// or Airflow image is a 30+ minute derivation, and for all of it the user
+    /// saw an entirely silent terminal. Here stderr is `inherit()`ed so Nix's
+    /// progress (and, with `-L`, the full build logs of failing derivations)
+    /// reaches the terminal live, while stdout stays `piped()` because that is
+    /// where `--print-out-paths` writes the store path we must capture.
+    ///
+    /// Flags mirror `bin/build/strategy.sh`'s `fs_nix_build_native`:
+    /// * `-L` / `--print-build-logs` — the Docker strategy already passes this.
+    /// * `--no-update-lock-file` — a build must never silently mutate
+    ///   `flake.lock`; if an input is missing, fail loudly instead.
     async fn run_nix_build(&self, flake_dir: &PathBuf, attr: &str) -> Result<PathBuf> {
         info!("Building with native Nix: {}#{}", flake_dir.display(), attr);
 
         let flake_ref = format!(".#{}", attr);
 
-        let output = Command::new("nix")
-            .args(["build", &flake_ref, "--no-link", "--print-out-paths"])
+        let child = Command::new("nix")
+            .args([
+                "build",
+                &flake_ref,
+                "--no-link",
+                "--print-out-paths",
+                "-L",
+                "--no-update-lock-file",
+            ])
             .current_dir(flake_dir)
-            .output()
-            .await?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()?;
+
+        // stderr is inherited, so `output.stderr` is empty by construction; the
+        // diagnostics the user needs have already been printed to the terminal.
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("Nix build failed: {}", stderr);
+            warn!("Nix build failed: nix build {} exited with {}", flake_ref, output.status);
             return Err(NixContainerError::BuildFailed {
                 container: flake_dir.display().to_string(),
-                message: stderr.to_string(),
+                message: format!(
+                    "`nix build {}` failed with {} (build log was streamed above)",
+                    flake_ref, output.status
+                ),
             });
         }
 

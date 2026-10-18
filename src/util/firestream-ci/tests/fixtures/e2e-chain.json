@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "acmeforge",
+    "nix_system": "x86_64-linux",
+    "arch": "x86_64"
+  },
+  "phases": [
+    {
+      "name": "tidy",
+      "tier": "advisory",
+      "depends_on": [],
+      "modes": [],
+      "builtin_tasks": [
+        "target-sweep"
+      ]
+    },
+    {
+      "name": "verify",
+      "tier": "required",
+      "depends_on": [
+        "tidy"
+      ],
+      "modes": [],
+      "attrs": [
+        "checks.{system}.required-unit"
+      ]
+    },
+    {
+      "name": "build",
+      "tier": "required",
+      "depends_on": [
+        "verify"
+      ],
+      "modes": [
+        "release"
+      ],
+      "attrs": [
+        "packages.{system}.widget"
+      ],
+      "aggregate": true,
+      "export_artifacts": true
+    },
+    {
+      "name": "smoke-alpha",
+      "tier": "advisory",
+      "depends_on": [
+        "verify"
+      ],
+      "modes": [
+        "e2e"
+      ],
+      "shell_tasks": [
+        {
+          "name": "smoke-alpha",
+          "command": [
+            "false"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "smoke-beta",
+      "tier": "advisory",
+      "depends_on": [
+        "verify",
+        "smoke-alpha"
+      ],
+      "modes": [
+        "e2e"
+      ],
+      "shell_tasks": [
+        {
+          "name": "smoke-beta",
+          "command": [
+            "true"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "smoke-gamma",
+      "tier": "advisory",
+      "depends_on": [
+        "verify",
+        "smoke-beta"
+      ],
+      "modes": [
+        "e2e"
+      ],
+      "shell_tasks": [
+        {
+          "name": "smoke-gamma",
+          "command": [
+            "true"
+          ]
+        }
+      ]
+    }
+  ],
+  "tier_rules": [],
+  "tier_default": "required",
+  "export_targets": [],
+  "export_default": {
+    "dest": "{leaf}",
+    "kind": "binary"
+  },
+  "passthrough_vars": [
+    "ACMEFORGE_E2E_STRICT"
+  ],
+  "devshell_sentinels": [
+    {
+      "name": "IN_NIX_SHELL"
+    }
+  ],
+  "builder": {
+    "image_name": "acmeforge-builder",
+    "base_image": "nixos/nix:latest",
+    "min_image_size_bytes": 104857600,
+    "container_name_prefix": "acmeforge-ci-"
+  },
+  "build_strategy": {},
+  "container_registry": {},
+  "provenance": {}
+}

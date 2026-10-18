@@ -130,6 +130,30 @@ pub fn deploy_chart_with_overrides(
     if let Some(t) = crate::env::env_helm_timeout() {
         info.timeout = t;
     }
+
+    // `--atomic` is DISABLED for e2e, deliberately.
+    //
+    // On a fresh cluster `helm upgrade --install` has no prior revision, so an
+    // `--atomic` failure does not roll back — it UNINSTALLS the release. Helm
+    // deletes the workloads before returning, and measured on a live cluster
+    // the container logs are already unreachable by the time the command exits:
+    //
+    //     $ helm install ... --atomic --wait --timeout 45s   # fails
+    //     $ kubectl logs <pod> -n <ns> --previous
+    //     unable to retrieve container logs for containerd://...
+    //
+    // The pod object lingers in `Terminating` and Events survive, but the
+    // container logs — the single most useful artefact — are gone. Both real
+    // chart failures found by this harness were diagnosed from logs (airflow's
+    // `wait-for-db-migrations` init container; superset's
+    // `Loading [World Bank's ...]` immediately before an OOMKill), and with
+    // `--atomic` on, each surfaced only as a bare `context deadline exceeded`.
+    //
+    // Nothing is leaked by turning it off: `ClusterGuard` is armed BEFORE
+    // deploy (harness.rs), so a failed deploy tears down the whole k3d cluster
+    // regardless. In e2e `--atomic` is pure evidence destruction with no
+    // cleanup benefit. Production deploys keep it — see the chart manifests.
+    info.atomic = false;
     // Per-test value overrides -> `helm --set k=v`. Empty for the normal
     // single-chart sweep; the backup round-trip uses this to enable the
     // pg_dumpall CronJob.

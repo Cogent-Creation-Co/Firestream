@@ -12,21 +12,16 @@
 
 set -euo pipefail
 
-# ── Path Resolution ──────────────────────────────────────────────────
-# Convert paths to physical (resolve symlinks)
-resolve_physical() {
-    local path="$1"
-    if [[ -d "$path" ]]; then
-        (cd "$path" && pwd -P)
-    elif [[ -f "$path" ]]; then
-        local dir
-        dir="$(dirname "$path")"
-        echo "$(cd "$dir" && pwd -P)/$(basename "$path")"
-    else
-        echo "$path"
-    fi
-}
+# ── Build Strategy Library ───────────────────────────────────────────
+# Side-effect-free; also sourced by nix/flake-modules/docker-build.nix.
+# Provides: resolve_physical, resolve_git_mounts, get_nix_volume,
+#           fs_norm_arch, fs_host_arch, fs_in_container, fs_native_blocker,
+#           fs_choose_strategy, fs_nix_build_native, fs_nix_build_docker,
+#           fs_build_image
+# shellcheck source=bin/build/strategy.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/strategy.sh"
 
+# ── Path Resolution ──────────────────────────────────────────────────
 # Find repo root - works in containers and worktrees
 find_repo_root() {
     local dir="${1:-$(pwd)}"
@@ -49,52 +44,6 @@ find_repo_root() {
 
     echo "ERROR: Could not find repo root" >&2
     return 1
-}
-
-# ── Git Worktree Mount Resolution ────────────────────────────────────
-# Parse .git file directly (not via git command which may fail in container)
-# Returns Docker mount flags needed for Nix/libgit2 to work
-resolve_git_mounts() {
-    local repo_root="$1"
-    GIT_DOCKER_MOUNTS=()
-
-    # Check if .git is a file (worktree) vs directory (regular repo)
-    if [[ -f "$repo_root/.git" ]]; then
-        # Parse gitdir from .git file: "gitdir: /path/to/main/.git/worktrees/name"
-        local gitdir
-        gitdir=$(sed 's/^gitdir: //' "$repo_root/.git" | tr -d '\n\r')
-
-        # Make absolute if relative
-        [[ "$gitdir" != /* ]] && gitdir="$repo_root/$gitdir"
-        gitdir=$(resolve_physical "$gitdir")
-
-        # Read commondir to find main .git directory
-        # commondir file contains relative path like "../.."
-        local commondir_content main_git_dir
-        if [[ -f "$gitdir/commondir" ]]; then
-            commondir_content=$(cat "$gitdir/commondir" | tr -d '\n\r')
-            main_git_dir=$(resolve_physical "$gitdir/$commondir_content")
-        else
-            # Fallback: worktrees dir is inside main .git
-            # /path/to/.git/worktrees/name -> /path/to/.git
-            main_git_dir=$(resolve_physical "$gitdir/../..")
-        fi
-
-        # Mount both the worktree gitdir and main .git at their original paths
-        # This allows absolute paths in gitdir pointer to resolve correctly
-        GIT_DOCKER_MOUNTS=(
-            -v "$gitdir:$gitdir:ro"
-            -v "$main_git_dir:$main_git_dir:ro"
-        )
-
-        export GIT_WORKTREE_DETECTED="true"
-        export GIT_WORKTREE_GITDIR="$gitdir"
-        export GIT_WORKTREE_MAIN_GIT="$main_git_dir"
-    else
-        export GIT_WORKTREE_DETECTED="false"
-        export GIT_WORKTREE_GITDIR=""
-        export GIT_WORKTREE_MAIN_GIT=""
-    fi
 }
 
 # ── Initialize paths ─────────────────────────────────────────────────
@@ -138,21 +87,17 @@ _detect_docker_memory() {
     fi
 }
 
-DOCKER_CPUS="${DOCKER_CPUS:-$(_detect_docker_cpus)}"
-DOCKER_MEMORY="${DOCKER_MEMORY:-$(_detect_docker_memory)}"
-DOCKER_SWAP="${DOCKER_SWAP:-$(( ${DOCKER_MEMORY%g} * 2 ))g}"
-
-export DOCKER_CPUS DOCKER_MEMORY DOCKER_SWAP
-
-# ── Architecture-Specific Nix Store Volumes ──────────────────────────
-# Separate volumes per architecture to avoid cache pollution
-get_nix_volume() {
-    local arch="${1:-$(uname -m)}"
-    case "$arch" in
-        x86_64|amd64)  echo "firestream-nix-store-amd64" ;;
-        aarch64|arm64) echo "firestream-nix-store-arm64" ;;
-        *)             echo "firestream-nix-store-$arch" ;;
-    esac
+# Lazily populate DOCKER_CPUS / DOCKER_MEMORY / DOCKER_SWAP.
+# NOT done at source time: `docker info` is two round-trips (and a multi-second
+# stall plus noise on a host with no daemon) that the native build path never
+# needs. Called from fs_nix_build_docker in strategy.sh.
+fs_docker_resources() {
+    if [[ -n "${_FS_DOCKER_RESOURCES_DONE:-}" ]]; then return 0; fi
+    DOCKER_CPUS="${DOCKER_CPUS:-$(_detect_docker_cpus)}"
+    DOCKER_MEMORY="${DOCKER_MEMORY:-$(_detect_docker_memory)}"
+    DOCKER_SWAP="${DOCKER_SWAP:-$(( ${DOCKER_MEMORY%g} * 2 ))g}"
+    export DOCKER_CPUS DOCKER_MEMORY DOCKER_SWAP
+    _FS_DOCKER_RESOURCES_DONE=1
 }
 
 # ── Container Registry ───────────────────────────────────────────────

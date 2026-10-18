@@ -1,0 +1,129 @@
+[package]
+name = "firestream-ci"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Build-pipeline primitives: composes otel-cli + firestream-nix-build into a reusable Nix + Docker + OTel toolkit."
+readme = "README.md"
+
+[[bin]]
+name = "firestream-ci"
+path = "src/bin/firestream-ci.rs"
+
+[lib]
+name = "firestream_ci"
+path = "src/lib.rs"
+
+[features]
+# NOTE: there is deliberately NO project-specific feature here. Everything
+# ConceptDB expressed via its `conceptdb` feature becomes runtime profile data
+# (`ci-manifest.json`, Phase 4). `tests/lift-fixture/` is the gate that keeps
+# the core API project-agnostic by construction.
+# Regenerate the self-contained wire protocol (`proto/firestream/ci/v1/`) into
+# `src/wire/`. Requires `protoc` on PATH (Nix dev-shell). Off by default so the
+# normal build is hermetic and uses the committed generated code.
+codegen = ["dep:prost-build"]
+
+[dependencies]
+# Sibling crates (path deps — leaf-vs-non-leaf rule)
+firestream-otel-cli = { path = "../firestream-otel-cli" }
+firestream-nix-build = { path = "../firestream-nix-build" }
+
+# CLI
+clap = { workspace = true }
+
+# Async runtime
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "signal",
+    "time",
+    "fs",
+    "io-util",
+    "io-std",
+    "sync",
+    "net",
+] }
+
+# Serde / JSON
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Wire protocol (proto/firestream/ci/v1/) — self-contained typed JSON-over-stdio
+# "agent mode". `prost` is needed at runtime for the generated `Message` types;
+# `prost-build` is only pulled in under the `codegen` feature (see [features]).
+prost = { workspace = true }
+
+# Errors / logging
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utilities (workspace-declared)
+chrono = { workspace = true }
+tempfile = { workspace = true }
+
+# Crate-specific deps not in [workspace.dependencies] today.
+# Promote to workspace deps if/when a second crate adopts them.
+bollard = "0.17"
+git2 = { version = "0.19", default-features = false }
+comfy-table = "7"
+# Live CI dashboard — scratch area (per-task spinners + tail-N preview)
+# above an emitted area (failure dumps, end-of-run tables) without the
+# alt-screen baggage of a full TUI framework. Engine behind Buck2's UI.
+superconsole = "0.2"
+walkdir = "2"
+humantime = "2"
+humansize = "2"
+which = "6"
+tar = "0.4"
+# SHA-256 for artifact byte hashing (per-file + stable tree hash). Matches
+# the workspace's sha2 = "0.10" pin (see root Cargo.toml). Inheriting via
+# `workspace = true` would require sha2 to be in [workspace.dependencies],
+# which the root file declares under a generic-utilities cluster — keep
+# this explicit so the dep line is self-documenting.
+sha2 = "0.10"
+
+# Used by `version` for in-place TOML edits (Cargo.toml, pyproject.toml)
+# that preserve formatting. Crate-local for now — promote to workspace dep
+# if a second member adopts it.
+toml_edit = "0.22"
+hex = "0.4"
+rand = "0.8"
+# Run-body finalizers (crash-path manifest write). The `defer!` macro flips a
+# shared abort flag when the runner exits early; the actual `finalize_manifest`
+# call still happens in the runner body so we can keep it `async`.
+scopeguard = "1"
+
+# OTLP proto types — version pinned to match otel-cli's own dep so the
+# tonic-generated types are identical across crates (required because
+# `Tracer::enqueue` hands a `ResourceSpans` to the otel-cli client).
+opentelemetry-proto = { version = "0.32", default-features = false, features = [
+    "gen-tonic",
+    "trace",
+    "with-serde",
+] }
+
+# Unix-specific
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["signal", "process", "fs"] }
+
+[build-dependencies]
+# Only used under the `codegen` feature to regenerate `src/wire/` from the
+# committed `.proto`. Optional so default builds need neither it nor `protoc`.
+prost-build = { workspace = true, optional = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
+# Backdate sentinel mtimes in `rundir` tests.
+filetime = "0.2"

@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "firestream-otel-cli",
+    "firestream-nix-build",
+    "firestream-ci",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0"
+authors = ["Cogent Creation Co."]
+repository = "https://github.com/Cogent-Creation-Co/Firestream"
+
+# Shared deps factored out of member Cargo.tomls. Versions here are the
+# canonical pin for the virtual workspace; members extend with per-crate
+# feature sets via `dep = { workspace = true, features = [...] }`.
+[workspace.dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+
+# Async runtime + helpers
+tokio = { version = "1.40", default-features = false }
+async-trait = "0.1"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+
+# Serde / JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Wire protocol codegen (firestream-ci `proto/firestream_ci/v1/`). prost-build is only used
+# under the crate's `codegen` feature.
+prost = "0.14"
+prost-build = "0.14"
+
+# Errors / logging
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+    "fmt",
+] }
+
+# Utilities
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+tempfile = "3"
+
+# Unix-specific
+nix = { version = "0.29", default-features = false }
+
+# Dev deps shared by both crates
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

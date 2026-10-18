@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # container-images.sh - Build container images via Nix
 #
-# Builds containers inside Docker with volume-based Nix cache.
+# Builds natively against the host /nix/store when possible, and falls back to
+# a nixos/nix Docker builder with a volume-based Nix cache otherwise (macOS,
+# cross-arch target, no nix on PATH, or running inside a container).
 # Supports git worktrees by mounting git directories at original paths.
 #
 # Usage:
@@ -9,15 +11,73 @@
 #   ./bin/build/container-images.sh postgresql --version 17
 #   ./bin/build/container-images.sh airflow kafka spark
 #
+# ── STRANGLER STATUS (Phase 7) ───────────────────────────────────────
+# THIS SCRIPT IS STILL THE DEFAULT AND IS UNCHANGED BELOW THIS HEADER.
+# `firestream-ci build images` is a second, opt-in implementation of the same
+# command line (`--rust`, or FIRESTREAM_BUILD_IMPL=rust, or `make <t> IMPL=rust`).
+#
+# DELETION CHECKLIST — every box must be ticked before this file is removed:
+#   [ ] `FIRESTREAM_BUILD_IMPL=rust make redis-build` completes on a LINUX host
+#       and `docker images` shows the same tag the bash path produces.
+#   [ ] The same, native strategy, for one heavyweight image (airflow or spark).
+#   [ ] The same on a DARWIN host, where the strategy resolves to `docker`, and
+#       the builder mounts firestream-nix-store-<arch> (NOT -x86_64).
+#   [ ] `FIRESTREAM_BUILD_IMPL=rust make manifest` produces a _build/manifest/
+#       byte-identical to the bash path's.
+#   [ ] A git-worktree checkout has been exercised on the Docker strategy (the
+#       `-v <gitdir>:<gitdir>:ro` pair must appear; `--dry-run` shows it).
+#   [ ] Ctrl-C during a multi-package batch leaves no `.build-batch.lock`.
+#   [ ] `bin/build/test-registry-parity.sh` and `bin/build/test-strategy-parity.sh`
+#       are green (they are the two tables the Rust path reproduces).
+#
+# THEN, and only then:
+#   - makefile: BUILD_CONTAINER / MANIFEST_SCRIPT point at `firestream-ci build ...`
+#     and the IMPL selector goes away.
+#   - bin/build-container.sh: re-point or delete.
+#   - bin/build/_common.sh: only `find_repo_root`, the log_* helpers,
+#     CONTAINER_REGISTRY and fs_docker_resources live here; all four have typed
+#     equivalents. Delete the file, but KEEP bin/build/strategy.sh — it is
+#     sourced from /nix/store by nix/flake-modules/docker-build.nix, where no
+#     Rust workspace exists, and it is half the strategy parity gate.
+#   - bin/build/registry-cases.json must survive: it is what the Nix profile
+#     reads. Its bash-side harness (test-registry-parity.sh) dies with _common.sh.
+#
 # Copyright Firestream. MIT License.
 
 set -euo pipefail
 
-echo "NOTICE: This script is deprecated. Use 'firestream build <container>' instead." >&2
-echo "See: firestream build --help" >&2
-echo "" >&2
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# ── Implementation selector (opt-in; default is this script) ──────────
+# Handled before _common.sh is sourced so the Rust path pays none of the
+# preamble. `--bash` wins over the env var, so an operator can pin the proven
+# path in one invocation without unsetting anything.
+_fs_impl="${FIRESTREAM_BUILD_IMPL:-bash}"
+_fs_fwd=()
+for _arg in "$@"; do
+    case "$_arg" in
+        --rust) _fs_impl="rust" ;;
+        --bash) _fs_impl="bash" ;;
+        *)      _fs_fwd+=("$_arg") ;;
+    esac
+done
+case "$_fs_impl" in
+    rust)
+        if ! command -v firestream-ci >/dev/null 2>&1; then
+            echo "FIRESTREAM_BUILD_IMPL=rust but firestream-ci is not on PATH." >&2
+            echo "Enter the devshell (nix develop) or build it:" >&2
+            echo "  cd src/util && cargo build --release -p firestream-ci" >&2
+            exit 1
+        fi
+        exec firestream-ci build images ${_fs_fwd[@]+"${_fs_fwd[@]}"}
+        ;;
+    bash) ;;
+    *)
+        echo "  ! Unknown FIRESTREAM_BUILD_IMPL='${_fs_impl}' (expected bash|rust); using bash" >&2
+        ;;
+esac
+set -- ${_fs_fwd[@]+"${_fs_fwd[@]}"}
+
 source "$SCRIPT_DIR/_common.sh"
 
 TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
@@ -28,7 +88,7 @@ usage() {
     printf "${BOLD}Usage:${RESET} $0 [options] <container1> [container2] ...\n"
     echo ""
     echo "  Build Firestream container images using Nix."
-    echo "  Automatically runs builds inside Docker with persistent Nix cache."
+    echo "  Uses the host /nix/store when possible; otherwise a Docker builder."
     echo ""
     printf "${BOLD}Containers:${RESET}\n"
     list_containers | sed 's/^/    /'
@@ -36,6 +96,10 @@ usage() {
     printf "${BOLD}Options:${RESET}\n"
     printf "  ${CYAN}--target <arch>${RESET}     Target architecture (x86_64, aarch64)\n"
     printf "  ${CYAN}--version <ver>${RESET}     Container version (applies to next container)\n"
+    printf "  ${CYAN}--native${RESET}            Force a native build against the host /nix/store\n"
+    printf "  ${CYAN}--docker${RESET}            Force the nixos/nix Docker builder\n"
+    printf "  ${CYAN}--rust${RESET}              Run via \`firestream-ci build images\` (opt-in; same args)\n"
+    printf "  ${CYAN}--bash${RESET}              Force this script (default; overrides FIRESTREAM_BUILD_IMPL)\n"
     printf "  ${CYAN}--help${RESET}              Show this help\n"
     echo ""
     printf "${BOLD}Examples:${RESET}\n"
@@ -63,6 +127,14 @@ while [[ $# -gt 0 ]]; do
             [[ $# -lt 2 ]] && { log_error "--target requires argument"; exit 1; }
             TARGET_ARCH="$2"
             shift 2
+            ;;
+        --native)
+            export FIRESTREAM_BUILD_STRATEGY="native"
+            shift
+            ;;
+        --docker)
+            export FIRESTREAM_BUILD_STRATEGY="docker"
+            shift
             ;;
         --help|-h)
             usage
@@ -108,12 +180,12 @@ mkdir -p "$BUILD_OUTPUT_DIR"
 # Acquire batch lock to prevent concurrent builds
 BATCH_LOCK="$BUILD_OUTPUT_DIR/.build-batch.lock"
 INTERRUPTED=false
-DOCKER_PID=""
+BUILD_PID=""
 
 cleanup() {
-    if [[ -n "$DOCKER_PID" ]] && kill -0 "$DOCKER_PID" 2>/dev/null; then
-        kill "$DOCKER_PID" 2>/dev/null || true
-        wait "$DOCKER_PID" 2>/dev/null || true
+    if [[ -n "$BUILD_PID" ]] && kill -0 "$BUILD_PID" 2>/dev/null; then
+        kill "$BUILD_PID" 2>/dev/null || true
+        wait "$BUILD_PID" 2>/dev/null || true
     fi
     rm -rf "$BATCH_LOCK"
 }
@@ -142,64 +214,6 @@ if ! mkdir "$BATCH_LOCK" 2>/dev/null; then
 fi
 echo $$ > "$BATCH_LOCK/pid"
 
-# Ensure Docker is available
-if ! command -v docker &>/dev/null; then
-    log_error "Docker is required but not found"
-    exit 1
-fi
-
-# Use nixos/nix as the builder image
-BUILDER_TAG="nixos/nix:latest"
-if ! docker image inspect "$BUILDER_TAG" >/dev/null 2>&1; then
-    log_info "Pulling builder image..."
-    docker pull "$BUILDER_TAG"
-fi
-
-# Map architecture to Docker platform
-docker_platform=""
-case "$TARGET_ARCH" in
-    x86_64|amd64)  docker_platform="linux/amd64" ;;
-    aarch64|arm64) docker_platform="linux/arm64" ;;
-    *)             docker_platform="linux/$TARGET_ARCH" ;;
-esac
-
-# Get architecture-specific Nix store volume
-NIX_VOLUME="$(get_nix_volume "$TARGET_ARCH")"
-
-# Resolve git mounts (critical for worktree support)
-resolve_git_mounts "$REPO_ROOT"
-
-log_info "Building with Nix inside Docker"
-log_step "Platform: $docker_platform"
-log_step "Nix store volume: $NIX_VOLUME (persistent cache)"
-log_step "Resources: ${DOCKER_CPUS} CPUs, ${DOCKER_MEMORY} RAM"
-
-if [[ "$GIT_WORKTREE_DETECTED" == "true" ]]; then
-    log_step "Worktree detected - mounting git dirs at original paths"
-fi
-
-# Build docker run base arguments
-# NOTE: Mount _build at /build (not nested under repo) to avoid permission issues
-# with nested bind mounts. The repo is mounted read-only, but we need write access
-# to the output directory.
-docker_args=(
-    --rm
-    --cpus "$DOCKER_CPUS"
-    --memory "$DOCKER_MEMORY"
-    --memory-swap "$DOCKER_SWAP"
-    --platform "$docker_platform"
-    -v "$REPO_ROOT:$REPO_ROOT:ro"
-    -v "$BUILD_OUTPUT_DIR:/build"
-    -v /var/run/docker.sock:/var/run/docker.sock
-    --mount "type=volume,source=$NIX_VOLUME,target=/nix"
-    -w "$REPO_ROOT"
-)
-
-# Add git worktree mounts if detected
-if [[ ${#GIT_DOCKER_MOUNTS[@]} -gt 0 ]]; then
-    docker_args+=("${GIT_DOCKER_MOUNTS[@]}")
-fi
-
 # ── Build each container ─────────────────────────────────────────────
 BUILD_START=$(date +%s)
 SUCCEEDED=0
@@ -216,42 +230,19 @@ for i in "${!PACKAGES[@]}"; do
     pkg="${PACKAGES[$i]}"
     container="${CONTAINERS[$i]}"
     OUT_DIR="$BUILD_OUTPUT_DIR/$pkg"
-    # Container sees output at /build/$pkg (not nested under repo mount)
-    CONTAINER_OUT_DIR="/build/$pkg"
     mkdir -p "$OUT_DIR"
 
     echo ""
     log_info "Building $pkg ($((i+1))/${#PACKAGES[@]})..."
 
-    # Run nix build inside container
-    # Use process substitution to capture docker exit code while still teeing output.
-    # The inner script uses set -euo pipefail for strict error handling.
-    # cp -L dereferences the nix symlink to copy the actual file.
-    docker run "${docker_args[@]}" "$BUILDER_TAG" \
-        sh -c '
-            set -euo pipefail
-
-            echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-            git config --global --add safe.directory "'"$REPO_ROOT"'" 2>/dev/null || true
-
-            echo ">>> Building '"$pkg"'..."
-            nix build ".#'"$pkg"'" -o /tmp/result -L --no-update-lock-file
-
-            # Dereference symlink (-L) to copy actual file, not symlink
-            cp -L /tmp/result "'"$CONTAINER_OUT_DIR/${pkg}.tar.gz"'"
-
-            # Verify file exists and has content
-            if [ ! -s "'"$CONTAINER_OUT_DIR/${pkg}.tar.gz"'" ]; then
-                echo "ERROR: Output file empty or missing" >&2
-                exit 1
-            fi
-
-            echo ">>> Build successful: '"$pkg"'"
-        ' > >(tee "$OUT_DIR/build.log") 2>&1 &
-    DOCKER_PID=$!
-    wait $DOCKER_PID
+    # Dispatches native vs docker via strategy.sh. Process substitution keeps
+    # the build's exit code while still teeing output to the per-package log.
+    fs_build_image "$REPO_ROOT" ".#$pkg" "$OUT_DIR/${pkg}.tar.gz" "$TARGET_ARCH" --sock \
+        > >(tee "$OUT_DIR/build.log") 2>&1 &
+    BUILD_PID=$!
+    wait $BUILD_PID
     build_status=$?
-    DOCKER_PID=""
+    BUILD_PID=""
 
     if $INTERRUPTED; then
         break

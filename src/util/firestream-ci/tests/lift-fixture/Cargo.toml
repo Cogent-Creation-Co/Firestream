@@ -1,0 +1,22 @@
+[package]
+name = "firestream-ci-lift-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Isolated workspace block: prevents the parent virtual workspace at
+# src/util/Cargo.toml from absorbing this fixture. Required so `cargo check
+# --manifest-path tests/lift-fixture/Cargo.toml` resolves only this crate.
+[workspace]
+
+[[bin]]
+name = "firestream-ci-lift-fixture"
+path = "src/main.rs"
+
+[dependencies]
+# NOTE: no `default-features = false`, because there is no project-specific
+# feature to turn off any more. ConceptDB's `conceptdb` feature was deleted in
+# the Firestream lift; project specifics become runtime `ci-manifest.json` data
+# (Phase 4). The invariant this fixture now proves is stronger: the core API is
+# project-agnostic BY CONSTRUCTION, in the crate's ordinary default build.
+firestream-ci = { path = "../.." }

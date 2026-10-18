@@ -29,7 +29,9 @@ let
     #########################
     group_exists() {
         local group="''${1:?group is missing}"
-        ${pkgs.glibc.bin}/bin/getent group "$group" >/dev/null 2>&1
+        # See the note in lib/net.nix: getent is a separate package, not part of
+        # glibc.bin. The old path never existed, so group_exists always said no.
+        ${pkgs.getent}/bin/getent group "$group" >/dev/null 2>&1
     }
 
     ########################
@@ -179,6 +181,75 @@ let
     }
 
     ########################
+    # Get the number of CPUs available
+    # Arguments:
+    #   None
+    # Returns:
+    #   Positive integer
+    #########################
+    get_total_cpus() {
+        ${pkgs.coreutils}/bin/nproc
+    }
+
+    ########################
+    # Read a field out of /etc/os-release
+    #
+    # Ported from the vendored Bitnami reference (see
+    # src/containers/firestream/spark/4.0/debian-12/prebuildfs/opt/bitnami/scripts/libos.sh)
+    # so the flag vocabulary matches what Bitnami scripts already expect, plus
+    # two Firestream aliases (--os / --dist) used by our own callers.
+    #
+    # /etc/os-release is absent in the Nix build sandbox and on some minimal
+    # images, so every lookup falls back to `uname` rather than returning empty:
+    # a caller asking "what OS is this" should always get an answer.
+    #
+    # Arguments:
+    #   $1 - flag: --id | --version | --branch | --codename | --name
+    #             | --pretty-name | --os | --dist
+    # Returns:
+    #   String
+    #########################
+    get_os_metadata() {
+        local -r flag_name="''${1:?missing flag}"
+
+        _os_release_field() {
+            local -r env_name="''${1:?missing environment variable name}"
+            if [[ -r /etc/os-release ]]; then
+                (
+                    . /etc/os-release
+                    echo "''${!env_name-}"
+                )
+            fi
+        }
+
+        case "$flag_name" in
+            --id)          _os_release_field ID ;;
+            --version)     _os_release_field VERSION_ID ;;
+            --branch)      _os_release_field VERSION_ID | ${pkgs.gnused}/bin/sed 's/\..*//' ;;
+            --codename)    _os_release_field VERSION_CODENAME ;;
+            --name)        _os_release_field NAME ;;
+            --pretty-name) _os_release_field PRETTY_NAME ;;
+            # Kernel/OS family, e.g. "Linux". Always answerable.
+            --os)
+                ${pkgs.coreutils}/bin/uname -s
+                ;;
+            # Distribution id, falling back to the kernel name off-distro.
+            --dist)
+                local dist
+                dist="$(_os_release_field ID)"
+                if [[ -z "$dist" ]]; then
+                    dist="$(${pkgs.coreutils}/bin/uname -s)"
+                fi
+                echo "$dist"
+                ;;
+            *)
+                error "get_os_metadata: unknown flag ''${flag_name}"
+                return 1
+                ;;
+        esac
+    }
+
+    ########################
     # Convert memory string to MB
     # Arguments:
     #   $1 - Memory string (e.g., "2G", "512M", "1024K")
@@ -299,8 +370,21 @@ let
         local return_value=1
         local -a cmd=()
 
-        # Parse arguments
+        # Flags are parsed WHEREVER they appear, not only before the command.
+        # Both orders are in use in this tree:
+        #   retry_while --tries 60 --sleep 10 is_db_migrated       (flags first)
+        #   retry_while "<cmd string>" --tries 30 --sleep 10       (flags last)
+        # The old loop `break`-ed at the first non-flag, so in the second shape
+        # `--tries 30 --sleep 10` were silently appended to the command instead
+        # of parsed — the retry budget was ignored. `--` still ends flag
+        # parsing, so a command that genuinely starts with a dash stays callable.
+        local end_of_flags=0
         while [[ "$#" -gt 0 ]]; do
+            if (( end_of_flags )); then
+                cmd+=("$1")
+                shift
+                continue
+            fi
             case "$1" in
                 --tries)
                     shift
@@ -311,34 +395,59 @@ let
                     sleep_time="''${1:?missing sleep value}"
                     ;;
                 --)
-                    shift
-                    break
+                    end_of_flags=1
                     ;;
                 -*)
                     stderr_print "unrecognized flag $1"
                     return 1
                     ;;
                 *)
-                    break
+                    cmd+=("$1")
                     ;;
             esac
             shift
         done
 
-        cmd=("$@")
         if [[ "''${#cmd[@]}" -eq 0 ]]; then
             stderr_print "missing command to retry"
             return 1
         fi
 
+        # Two call shapes are in use in this tree and BOTH must work:
+        #
+        #   retry_while --tries 60 --sleep 10 is_db_migrated
+        #       -> argv form: exec the words directly.
+        #
+        #   retry_while "airflow db check-migrations --timeout=$X" --tries 30
+        #       -> single-string form (see src/containers/firestream/airflow/
+        #          scripts/init.sh). This was BROKEN: `cmd=("$@")` keeps the
+        #          quoted string as one array element, so the exec looked for a
+        #          program literally named "airflow db check-migrations ...",
+        #          got "command not found" every attempt, and the call could
+        #          never succeed. Trailing flags after the string were also
+        #          swallowed into cmd rather than parsed.
+        #
+        # A single argument containing whitespace is therefore treated as a
+        # shell snippet and eval'd, which also admits compound conditions like
+        # "n=$((n+1)); [ $n -lt 3 ]". Anything else keeps exact argv semantics,
+        # so a command whose name contains no space is never re-parsed.
+        local use_eval=0
+        if [[ "''${#cmd[@]}" -eq 1 && "''${cmd[0]}" =~ [[:space:]] ]]; then
+            use_eval=1
+        fi
+
         for ((i = 1; i <= tries; i++)); do
             debug "Attempt $i/$tries: ''${cmd[*]}"
-            if "''${cmd[@]}"; then
+            if (( use_eval )); then
+                if eval "''${cmd[0]}"; then
+                    return_value=0
+                    break
+                fi
+            elif "''${cmd[@]}"; then
                 return_value=0
                 break
-            else
-                ${pkgs.coreutils}/bin/sleep "$sleep_time"
             fi
+            ${pkgs.coreutils}/bin/sleep "$sleep_time"
         done
         return "$return_value"
     }
@@ -451,6 +560,8 @@ in
     "ensure_group_exists"
     "am_i_root"
     "get_total_memory"
+    "get_total_cpus"
+    "get_os_metadata"
     "convert_to_mb"
     "get_machine_size"
     "get_machine_id"

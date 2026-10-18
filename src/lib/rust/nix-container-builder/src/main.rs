@@ -223,17 +223,37 @@ async fn handle_build(
     parallel: Option<usize>,
     sequential: bool,
 ) -> anyhow::Result<()> {
+    // Strategy selection.
+    //
+    // This used to be `.with_force_docker(docker || !native)`, which made
+    // `--native` the ONLY way to ever reach a native build — even with a real
+    // `--containers-dir` pointing at a checked-out repo on a Linux host with a
+    // populated /nix/store. That is the wrong default for the external case.
+    //
+    // Now:
+    //   * `--docker` always forces Docker (both modes).
+    //   * `--native` forces native.
+    //   * neither flag + `--containers-dir` => auto; `create_strategy` probes
+    //     the platform (strategy/mod.rs) and picks native on Linux-with-Nix.
+    //   * neither flag + embedded => Docker, carried by
+    //     `BuildConfig::for_embedded()`'s own `force_docker: true`
+    //     (src/config.rs), which is correct there: the portable binary cannot
+    //     assume Nix exists on the host it was copied to.
+    //
+    // Matches `firestream build --native/--docker` semantics.
     let config = BuildConfig::for_embedded()
         .with_force_native(native)
-        .with_force_docker(docker || !native) // Default to Docker in embedded mode
         .with_timeout(Duration::from_secs(timeout));
 
     // Use external containers dir if provided, otherwise use embedded mode
     let builder = if let Some(ref containers_dir) = cli.containers_dir {
-        let config = config.with_containers_dir(containers_dir);
+        // External checkout: clear the embedded Docker default; `docker` alone
+        // decides, and false means "auto-detect".
+        let config = config.with_force_docker(docker).with_containers_dir(containers_dir);
         NixContainerBuilder::with_config(config).await?
     } else {
-        // Use embedded mode with custom config
+        // Embedded: keep `for_embedded()`'s force_docker unless it is already true.
+        let config = if docker { config.with_force_docker(true) } else { config };
         NixContainerBuilder::embedded_with_config(config).await?
     };
 

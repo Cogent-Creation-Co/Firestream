@@ -1,0 +1,153 @@
+{
+  "_comment": [
+    "SYNTHETIC SECOND PROJECT — 'acmeforge', aarch64-linux variant.",
+    "",
+    "This fixture exists to prove the ci-manifest.json schema expresses a CI",
+    "shape that is NOT Firestream's. It is the JSON transcription of the",
+    "reference inventory preserved at docs/defaults-reference.rs.txt, whose",
+    "unit tests tests/profile_fixtures.rs reproduces verbatim.",
+    "",
+    "It is deliberately NOT the original repo's name: the point is that the",
+    "schema, not a cargo feature, is what carries a project's identity.",
+    "",
+    "This is the arch-gating half of the proof. The reference implementation",
+    "appended an x86_64-only GPU package with an `if arch == \"x86_64\"` branch",
+    "in Rust. Here that branch does not exist anywhere: the x86_64 manifest",
+    "lists the GPU target and this one simply does not. The producer decides;",
+    "the reader only reads."
+  ],
+
+  "schema_version": 1,
+
+  "project": {
+    "name": "acmeforge",
+    "nix_system": "aarch64-linux",
+    "arch": "aarch64"
+  },
+
+  "phases": [
+    { "name": "tidy", "tier": "advisory", "depends_on": [] },
+
+    {
+      "name": "verify",
+      "tier": "required",
+      "depends_on": ["tidy"],
+      "attrs": [
+        "checks.{system}.required-rust-nextest",
+        "checks.{system}.required-ts-vitest",
+        "checks.{system}.required-ts-tsc",
+        "checks.{system}.required-rust-clippy",
+        "checks.{system}.required-rust-fmt",
+        "checks.{system}.required-ts-format",
+        "checks.{system}.required-ts-eslint",
+        "checks.{system}.required-rust-audit",
+        "checks.{system}.required-rust-doc",
+        "checks.{system}.required-purity-audit",
+        "checks.{system}.required-proto-freshness",
+        "checks.{system}.required-hakari-verify"
+      ],
+      "advisory_attrs": ["checks.{system}.advisory-flux-models"]
+    },
+
+    {
+      "name": "build",
+      "tier": "required",
+      "depends_on": ["verify"],
+      "modes": ["release"],
+      "attrs": [
+        "packages.{system}.acmeforge-server-linux-{arch}",
+        "packages.{system}.acmeforge-web-linux-{arch}",
+        "packages.{system}.acmeforge-docs-linux-{arch}",
+        "packages.{system}.acmeforge-sbom",
+        "packages.{system}.acmeforge-cli",
+        "packages.{system}.acmeforge-portal-wasm",
+        "packages.{system}.acmeforge-spreadsheet-editor-wasm",
+        "packages.{system}.acmeforge-core-dataflow-wasm"
+      ]
+    },
+
+    {
+      "name": "attest",
+      "tier": "advisory",
+      "depends_on": ["build"],
+      "modes": ["release"],
+      "attrs": ["packages.{system}.acmeforge-sbom"]
+    }
+  ],
+
+  "tier_rules": [
+    { "match": { "prefix": "advisory-" }, "tier": "advisory" },
+    { "match": { "prefix": "required-" }, "tier": "required" }
+  ],
+  "tier_default": "required",
+
+  "export_targets": [
+    {
+      "_comment": "server / web / docs / server-gpu — container tarballs.",
+      "match": { "prefix": "acmeforge-", "contains": "-linux-" },
+      "dest": "{leaf}",
+      "kind": "image"
+    },
+    {
+      "match": { "equals": "acmeforge-sbom" },
+      "dest": "sbom",
+      "kind": "sbom"
+    },
+    {
+      "match": { "equals": "acmeforge-cli" },
+      "dest": "{leaf}-{arch}",
+      "kind": "binary"
+    },
+    {
+      "_comment": "acmeforge-portal-wasm -> acmeforge-wasm/portal",
+      "match": { "prefix": "acmeforge-", "suffix": "-wasm" },
+      "strip_prefix": "acmeforge-",
+      "strip_suffix": "-wasm",
+      "dest": "acmeforge-wasm/{stem}",
+      "kind": "wasm"
+    }
+  ],
+  "export_default": { "dest": "{leaf}", "kind": "binary" },
+
+  "passthrough_vars": [
+    "AR_REGISTRY",
+    "BRANCH",
+    "GIT_SHA",
+    "IMAGE_TAG",
+    "CODECOV_TOKEN",
+    "NIX_BUILD_CORES",
+    "NIX_BUILD_MAX_JOBS",
+    "NIX_MAX_SUBSTITUTION_JOBS",
+    "NIX_HTTP_CONNECTIONS",
+    "PHASE0_MAX_JOBS",
+    "PHASE0_CORES",
+    "BUILDER_IMAGE_NAME",
+    "NIX_BASE_IMAGE",
+    "CONTAINER_ARCH",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "TRACEPARENT",
+    "HONEYCOMB_API_KEY",
+    "NAMESPACE",
+    "SAFE_BRANCH",
+    "ACMEFORGE_BRANCH",
+    "PROD_PROJECT_ID",
+    "DEV_PROJECT_ID"
+  ],
+
+  "devshell_sentinels": [
+    { "name": "IN_NIX_SHELL" },
+    { "name": "ACMEFORGE_DEVSHELL", "value": "1" }
+  ],
+
+  "builder": {
+    "image_name": "acmeforge-builder",
+    "base_image": "acmeforge-nix-base:2.34.1",
+    "min_image_size_bytes": 104857600
+  },
+
+  "build_strategy": {
+    "default": "auto",
+    "native_cache": "host-store",
+    "docker_cache_volume": "acmeforge-nix-store-{arch}"
+  }
+}

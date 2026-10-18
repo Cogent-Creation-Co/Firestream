@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+// Self-contained wire schema for firestream-ci's "agent mode" — the typed
+// JSON-over-stdio protocol a caller uses to drive a CI run and consume a
+// structured result. Lives INSIDE the firestream-ci crate (not core-types) so the
+// crate can be extracted as a standalone reusable tool.
+//
+// Wire format: newline-delimited JSON. The process reads at most one
+// `RunRequest` frame on stdin, then streams `Event` frames on stdout (one
+// JSON object per line), then exits with the pipeline's exit code.
+package firestream.ci.v1;
+
+// Optional run parameters consumed on stdin in `--output-format json` mode.
+// Every field is optional; empty/zero means "auto-detect / default", matching
+// the CLI flags (mode → CI_MODE, nix_system → NIX_SYSTEM, etc.).
+message RunRequest {
+  string mode = 1;              // "check" | "release"
+  string nix_system = 2;        // e.g. "x86_64-linux"
+  string arch = 3;              // e.g. "x86_64"
+  string build_output_dir = 4;  // explicit rundir override
+
+  // Inline CI profile — the `ci-manifest.json` payload, shipped with the
+  // request instead of resolved from disk. When present it takes precedence
+  // over `--profile` / `FIRESTREAM_CI_PROFILE` / `./ci-manifest.json` /
+  // `/opt/firestream/ci/ci-manifest.json`, so a caller that already holds the
+  // profile (an orchestrator, a remote agent) does not have to materialise a
+  // file on the far side first.
+  CiProfile profile = 5;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// CI profile (schema_version 1)
+// ───────────────────────────────────────────────────────────────────────────
+//
+// A structural mirror of `ci-manifest.json`, whose schema of record is the
+// typed Nix option set at `bin/nix/firestream/ci/` and whose Rust reader is
+// `firestream_ci::profile::spec`. This message exists so the payload is
+// passable over the NDJSON stdin frame; the JSON file remains the primary
+// distribution channel.
+//
+// proto3 has no null, so "unset" is the zero value: an empty string means
+// "not set" (Rust maps it to `None` / the schema default), and a zero
+// `min_image_size_bytes` falls back to the 100 MiB floor.
+
+// A declarative string matcher. Every non-empty clause must hold (logical
+// AND); an all-empty matcher matches everything (a catch-all terminal rule).
+message Matcher {
+  string equals = 1;
+  string prefix = 2;
+  string suffix = 3;
+  string contains = 4;
+}
+
+// Project identity.
+message CiProject {
+  string name = 1;                  // short slug, e.g. "firestream"
+  string nix_system = 2;            // e.g. "x86_64-linux"
+  string arch = 3;                  // e.g. "x86_64"
+  string k8s_namespace_prefix = 4;  // default: "<name>-"
+}
+
+// One pipeline phase. `attrs` / `advisory_attrs` are {system}/{arch}/{project}
+// templates. Arch-conditional attr sets are expressed by emitting a
+// system-specific manifest, never by branching in the consumer.
+message CiPhase {
+  string name = 1;                    // "tidy" | "verify" | "build" | "attest"
+  string tier = 2;                    // "required" | "advisory"
+  repeated string depends_on = 3;
+  repeated string modes = 4;          // empty = every mode
+  repeated string attrs = 5;          // tier from tier_rules/tier_default
+  repeated string advisory_attrs = 6; // forced advisory
+}
+
+// One attr-leaf -> tier classification rule; first match wins.
+message CiTierRule {
+  Matcher match = 1;
+  string tier = 2;  // "required" | "advisory"
+}
+
+// One build-phase export rule; first match wins. `strip_prefix`/`strip_suffix`
+// produce {stem} from the attr leaf; `dest` expands {leaf}, {stem}, {arch},
+// {system}, {project}.
+message CiExportTarget {
+  Matcher match = 1;
+  string strip_prefix = 2;
+  string strip_suffix = 3;
+  string dest = 4;
+  string kind = 5;  // image|container|binary|wasm|sbom|app|nix
+}
+
+// Fallback destination + kind when no export rule matches.
+message CiExportDefault {
+  string dest = 1;  // default "{leaf}"
+  string kind = 2;  // default "binary"
+}
+
+// An env-var sentinel. Empty `value` means "present with any value"; a
+// non-empty `value` means "present and exactly equal".
+message CiEnvSentinel {
+  string name = 1;
+  string value = 2;
+}
+
+// Builder-image identity and guards.
+message CiBuilder {
+  string image_name = 1;
+  string base_image = 2;
+  uint64 min_image_size_bytes = 3;   // 0 => 100 MiB default
+  string container_name_prefix = 4;  // default: "<project>-ci-"
+}
+
+// Native-vs-docker build and cache policy.
+message CiBuildStrategy {
+  string default = 1;                // "auto" | "native" | "docker"
+  string native_cache = 2;           // e.g. "host-store"
+  string docker_cache_volume = 3;    // {arch}-templated
+}
+
+// The full profile.
+message CiProfile {
+  uint32 schema_version = 1;  // must be 1
+  CiProject project = 2;
+  repeated CiPhase phases = 3;
+  repeated CiTierRule tier_rules = 4;
+  string tier_default = 5;  // "required" | "advisory"
+  repeated CiExportTarget export_targets = 6;
+  CiExportDefault export_default = 7;
+  repeated string passthrough_vars = 8;
+  repeated CiEnvSentinel devshell_sentinels = 9;
+  CiBuilder builder = 10;
+  CiBuildStrategy build_strategy = 11;
+  map<string, string> provenance = 12;
+}
+
+// One streamed event frame. `kind` discriminates; only the fields relevant to
+// that kind are populated. A flat message (no oneof) keeps the JSON trivial to
+// produce and consume on both sides.
+message Event {
+  string kind = 1;  // "run_started" | "run_finished"
+
+  // run_started + run_finished
+  string rundir = 2;
+
+  // run_started
+  string mode = 3;
+  string nix_system = 4;
+
+  // run_finished
+  string outcome = 5;            // "passed" | "failed" | "aborted"
+  int32 exit_code = 6;           // 0 green, 1 required-failed, 2 advisory-only
+  string logs_dir = 7;           // <rundir>/logs — full per-attr logs to explore
+  repeated FailedAttr failed_attrs = 8;
+}
+
+// A CI attr (nix check/build target) that failed, with a concrete path the
+// caller can hand to an agent to dig into the root cause.
+message FailedAttr {
+  string phase = 1;        // "verify" | "build" | "attest"
+  string attr = 2;         // attr leaf, e.g. "required-rust-fmt"
+  string detail_path = 3;  // per-attr result JSON / stderr log under logs/
+}

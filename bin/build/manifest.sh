@@ -1,18 +1,55 @@
 #!/usr/bin/env bash
-# manifest.sh - Build fleet SBOM manifest via Nix in container
+# manifest.sh - Build fleet SBOM manifest via Nix
 #
-# Builds the fleet manifest inside Docker with volume-based Nix cache.
+# Builds natively against the host /nix/store when possible, falling back to a
+# nixos/nix Docker builder with a volume-based Nix cache otherwise.
 # Supports git worktrees by mounting git directories at original paths.
 #
 # Usage:
 #   ./bin/build/manifest.sh              # Build fleet manifest
 #   ./bin/build/manifest.sh airflow      # Build individual SBOM
 #
+# ── STRANGLER STATUS (Phase 7) ───────────────────────────────────────
+# THIS SCRIPT IS STILL THE DEFAULT AND IS UNCHANGED BELOW THIS HEADER.
+# `firestream-ci build manifest` is a second, opt-in implementation of the same
+# command line (`--rust`, or FIRESTREAM_BUILD_IMPL=rust, or `make manifest
+# IMPL=rust`). The deletion checklist for BOTH scripts lives in the header of
+# bin/build/container-images.sh.
+#
 # Copyright Firestream. MIT License.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# ── Implementation selector (opt-in; default is this script) ──────────
+# See the identical block in container-images.sh.
+_fs_impl="${FIRESTREAM_BUILD_IMPL:-bash}"
+_fs_fwd=()
+for _arg in "$@"; do
+    case "$_arg" in
+        --rust) _fs_impl="rust" ;;
+        --bash) _fs_impl="bash" ;;
+        *)      _fs_fwd+=("$_arg") ;;
+    esac
+done
+case "$_fs_impl" in
+    rust)
+        if ! command -v firestream-ci >/dev/null 2>&1; then
+            echo "FIRESTREAM_BUILD_IMPL=rust but firestream-ci is not on PATH." >&2
+            echo "Enter the devshell (nix develop) or build it:" >&2
+            echo "  cd src/util && cargo build --release -p firestream-ci" >&2
+            exit 1
+        fi
+        exec firestream-ci build manifest ${_fs_fwd[@]+"${_fs_fwd[@]}"}
+        ;;
+    bash) ;;
+    *)
+        echo "  ! Unknown FIRESTREAM_BUILD_IMPL='${_fs_impl}' (expected bash|rust); using bash" >&2
+        ;;
+esac
+set -- ${_fs_fwd[@]+"${_fs_fwd[@]}"}
+
 source "$SCRIPT_DIR/_common.sh"
 
 TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
@@ -23,11 +60,17 @@ usage() {
     printf "${BOLD}Usage:${RESET} $0 [container]\n"
     echo ""
     echo "  Build fleet SBOM manifest using Nix."
-    echo "  Automatically runs builds inside Docker with persistent Nix cache."
+    echo "  Uses the host /nix/store when possible; otherwise a Docker builder."
     echo ""
     printf "${BOLD}Commands:${RESET}\n"
     printf "  ${CYAN}(no args)${RESET}     Build complete fleet manifest\n"
     printf "  ${CYAN}<container>${RESET}   Build SBOM for specific container\n"
+    echo ""
+    printf "${BOLD}Options:${RESET}\n"
+    printf "  ${CYAN}--native${RESET}      Force a native build against the host /nix/store\n"
+    printf "  ${CYAN}--docker${RESET}      Force the nixos/nix Docker builder\n"
+    printf "  ${CYAN}--rust${RESET}        Run via \`firestream-ci build manifest\` (opt-in; same args)\n"
+    printf "  ${CYAN}--bash${RESET}        Force this script (default; overrides FIRESTREAM_BUILD_IMPL)\n"
     echo ""
     printf "${BOLD}Examples:${RESET}\n"
     printf "  ${DIM}\$${RESET} $0                    ${DIM}# Build fleet manifest${RESET}\n"
@@ -41,6 +84,14 @@ usage() {
 CONTAINER=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --native)
+            export FIRESTREAM_BUILD_STRATEGY="native"
+            shift
+            ;;
+        --docker)
+            export FIRESTREAM_BUILD_STRATEGY="docker"
+            shift
+            ;;
         --help|-h)
             usage
             ;;
@@ -68,87 +119,13 @@ fi
 
 # ── Setup ────────────────────────────────────────────────────────────
 OUTPUT_DIR="$BUILD_OUTPUT_DIR/$OUTPUT_NAME"
-CONTAINER_OUT_DIR="/build/$OUTPUT_NAME"
-mkdir -p "$OUTPUT_DIR"
-
-# Ensure Docker is available
-if ! command -v docker &>/dev/null; then
-    log_error "Docker is required but not found"
-    exit 1
-fi
-
-# Use nixos/nix as the builder image
-BUILDER_TAG="nixos/nix:latest"
-if ! docker image inspect "$BUILDER_TAG" >/dev/null 2>&1; then
-    log_info "Pulling builder image..."
-    docker pull "$BUILDER_TAG"
-fi
-
-# Map architecture to Docker platform
-docker_platform=""
-case "$TARGET_ARCH" in
-    x86_64|amd64)  docker_platform="linux/amd64" ;;
-    aarch64|arm64) docker_platform="linux/arm64" ;;
-    *)             docker_platform="linux/$TARGET_ARCH" ;;
-esac
-
-# Get architecture-specific Nix store volume
-NIX_VOLUME="$(get_nix_volume "$TARGET_ARCH")"
-
-# Resolve git mounts (critical for worktree support)
-resolve_git_mounts "$REPO_ROOT"
-
-log_info "Building with Nix inside Docker"
-log_step "Platform: $docker_platform"
-log_step "Nix store volume: $NIX_VOLUME (persistent cache)"
-log_step "Output: $OUTPUT_DIR"
-
-if [[ "$GIT_WORKTREE_DETECTED" == "true" ]]; then
-    log_step "Worktree detected - mounting git dirs at original paths"
-fi
-
-# Build docker run base arguments
-docker_args=(
-    --rm
-    --cpus "$DOCKER_CPUS"
-    --memory "$DOCKER_MEMORY"
-    --memory-swap "$DOCKER_SWAP"
-    --platform "$docker_platform"
-    -v "$REPO_ROOT:$REPO_ROOT:ro"
-    -v "$BUILD_OUTPUT_DIR:/build"
-    --mount "type=volume,source=$NIX_VOLUME,target=/nix"
-    -w "$REPO_ROOT"
-)
-
-# Add git worktree mounts if detected
-if [[ ${#GIT_DOCKER_MOUNTS[@]} -gt 0 ]]; then
-    docker_args+=("${GIT_DOCKER_MOUNTS[@]}")
-fi
+mkdir -p "$BUILD_OUTPUT_DIR"
 
 # ── Build ────────────────────────────────────────────────────────────
 BUILD_START=$(date +%s)
 
-docker run "${docker_args[@]}" "$BUILDER_TAG" \
-    sh -c '
-        set -euo pipefail
-
-        echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-        git config --global --add safe.directory "'"$REPO_ROOT"'" 2>/dev/null || true
-
-        echo ">>> Building '"$NIX_TARGET"'..."
-        nix build "'"$NIX_TARGET"'" -o /tmp/result -L --no-update-lock-file
-
-        # Copy to container-local temp first (Nix store output is read-only;
-        # chmod fails on macOS Docker volume mounts, so fix perms locally first)
-        rm -rf "'"$CONTAINER_OUT_DIR"'"
-        mkdir -p "'"$CONTAINER_OUT_DIR"'"
-        cp -rL /tmp/result /tmp/result-writable
-        chmod -R u+w /tmp/result-writable
-        cp -r /tmp/result-writable/* "'"$CONTAINER_OUT_DIR"'/"
-        rm -rf /tmp/result-writable
-
-        echo ">>> Build successful"
-    '
+# Dispatches native vs docker via strategy.sh (--dir: directory output).
+fs_build_image "$REPO_ROOT" "$NIX_TARGET" "$OUTPUT_DIR" "$TARGET_ARCH" --dir
 
 build_status=$?
 BUILD_END=$(date +%s)

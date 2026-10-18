@@ -1,4 +1,0 @@
-2026-04-23T14:43:45.309912Z  WARN firestream::services::manager: Failed to connect to Kubernetes cluster: auth error: unable to run auth exec: No such file or directory (os error 2)
-2026-04-23T14:43:45.311919Z  WARN firestream::services::manager: Running in offline mode - some features will be limited
-2026-04-23T14:43:45.314289Z  WARN firestream::services::manager: Failed to connect to Kubernetes cluster: auth error: unable to run auth exec: No such file or directory (os error 2)
-2026-04-23T14:43:45.314327Z  WARN firestream::services::manager: Running in offline mode - some features will be limited

@@ -220,19 +220,11 @@ let
       error_code=1
     }
 
-    ########################
-    # Replace text in file
-    # Arguments:
-    #   $1 - file
-    #   $2 - search pattern
-    #   $3 - replacement
-    #########################
-    replace_in_file() {
-      local file="$1"
-      local search="$2"
-      local replace="$3"
-      ${pkgs.gnused}/bin/sed -i "s|$search|$replace|g" "$file"
-    }
+    # NOTE: `replace_in_file` used to be redefined here, shadowing the shared
+    # core-lib helper because that one had its parameters in the wrong order and
+    # silently no-opped. The core lib is now filename-first and matches upstream
+    # Bitnami (bin/nix/firestream/lib/file.nix), so this override is gone and
+    # every container uses one implementation.
 
     ########################
     # Ensure directory exists

@@ -1,0 +1,10 @@
+[Unit]
+Description={DESCRIPTION}
+
+[Service]
+Type=oneshot
+ExecStart={EXEC_START}
+{ENV_BLOCK}
+
+[Install]
+WantedBy=default.target

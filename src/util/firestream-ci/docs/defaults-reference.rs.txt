@@ -1,0 +1,283 @@
+// ConceptDB reference inventory — PRESERVED, NOT COMPILED.
+//
+// This is the verbatim `src/defaults/mod.rs` from ConceptDB's `oxi-ci` as it
+// existed at the time of the Firestream lift (Phase 1 / Part A of the plan).
+// The module and its `conceptdb` cargo feature were DELETED from firestream-ci;
+// every value below becomes runtime data in the Phase 4 `ci-manifest.json`
+// profile payload.
+//
+// It is kept here because it is the COMPLETE INVENTORY of what the Phase 4
+// profile schema must be able to express: attr lists, tier classification by
+// prefix, arch-gated attrs, export-target prefix/suffix matching, builder image
+// identity/size floor, and the passthrough env-var set. Its unit tests are the
+// assertion set that Phase 4's synthetic `tests/fixtures/other-project.json`
+// must reproduce from JSON alone.
+//
+// Firestream git history does NOT contain this file in compiled form; this
+// `.rs.txt` copy is the only record.
+//
+// STATUS (Phase 4, landed): every member below now has a home in the
+// `ci-manifest.json` schema — see the mapping table at the top of
+// `src/profile/spec.rs`, the typed producer at `bin/nix/firestream/ci/`, and
+// `tests/profile_fixtures.rs`, which reproduces EVERY unit test below from a
+// synthetic non-Firestream JSON profile alone. The one thing that did not
+// become a schema field is `build_attrs`' `if arch == "x86_64"` branch: it
+// became the *absence* of an entry in the aarch64 manifest, which is the
+// design's central invariant (the Nix producer emits per-system manifests; the
+// Rust reader does zero project reasoning).
+//
+// KEEP THIS FILE. It is still load-bearing: it is the specification the
+// fixture test is checked against, and the only record of what the schema had
+// to be able to express.
+//
+// ---------------------------------------------------------------------------
+
+//! ConceptDB-specific defaults — feature-gated behind `conceptdb`. External
+//! consumers disable the feature and inject their own defaults; the
+//! lift-fixture test (see `tests/lift-fixture/`) enforces that nothing in
+//! the core API surface depends on this module.
+
+#[cfg(feature = "conceptdb")]
+pub mod conceptdb {
+    //! `verify` / `build` phase attr lists, image names, `CI_PASSTHROUGH_VARS`,
+    //! branch sanitization, the `required-*` / `advisory-*` tier classifier —
+    //! all the things that don't generalize past ConceptDB's CI shape.
+
+    use crate::pipeline::Tier;
+
+    /// Default builder image name. Mirrors `bin/_lib.sh:36`.
+    pub const BUILDER_IMAGE_NAME: &str = "conceptdb-builder";
+
+    /// Default base image for cold-start builds. Mirrors `bin/_lib.sh:37`.
+    pub const NIX_BASE_IMAGE: &str = "conceptdb-nix-base:2.34.1";
+
+    /// Minimum legitimate builder-image size in bytes (100 MiB). Anything
+    /// smaller is rejected by the flatten/retag step as a likely corrupt
+    /// or empty image. Mirrors `bin/_lib.sh:296`.
+    pub const MIN_BUILDER_IMAGE_SIZE_BYTES: u64 = 100 * 1024 * 1024;
+
+    /// Env vars to forward from the host into the builder container.
+    /// Mirrors `bin/_lib.sh:549-558` exactly so the bash and Rust paths
+    /// pass through the same set during the strangler phase.
+    pub const CI_PASSTHROUGH_VARS: &[&str] = &[
+        "AR_REGISTRY",
+        "BRANCH",
+        "GIT_SHA",
+        "IMAGE_TAG",
+        "CODECOV_TOKEN",
+        "NIX_BUILD_CORES",
+        "NIX_BUILD_MAX_JOBS",
+        "NIX_MAX_SUBSTITUTION_JOBS",
+        "NIX_HTTP_CONNECTIONS",
+        "PHASE0_MAX_JOBS",
+        "PHASE0_CORES",
+        "BUILDER_IMAGE_NAME",
+        "NIX_BASE_IMAGE",
+        "CONTAINER_ARCH",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "TRACEPARENT",
+        "HONEYCOMB_API_KEY",
+        "NAMESPACE",
+        "SAFE_BRANCH",
+        "CONCEPTDB_BRANCH",
+        "PROD_PROJECT_ID",
+        "DEV_PROJECT_ID",
+    ];
+
+    /// `verify` phase attribute list (Required checks). Mirrors
+    /// `bin/ci/ci-linux.sh:219-228`. Caller supplies the `nix_system` (e.g.
+    /// `x86_64-linux`) to produce the full attr path.
+    pub fn verify_attrs(nix_system: &str) -> Vec<String> {
+        [
+            "required-rust-nextest",
+            "required-ts-vitest",
+            "required-ts-tsc",
+            "required-rust-clippy",
+            "required-rust-fmt",
+            "required-ts-format",
+            "required-ts-eslint",
+            "required-rust-audit",
+            "required-rust-doc",
+            "required-purity-audit",
+            "required-proto-freshness",
+            "required-hakari-verify",
+        ]
+        .iter()
+        .map(|leaf| format!("checks.{nix_system}.{leaf}"))
+        .collect()
+    }
+
+    /// `verify` phase advisory attribute list. Failures here are reported but
+    /// do NOT block the Required verdict (tier classifier keys on the
+    /// `advisory-` prefix). The deferred `required-integration` flake check
+    /// (E2E via docker-compose.e2e.yml + mock auth + workflow-execute,
+    /// currently scaffolded as `bin/test/run-integration.sh`) also lands here
+    /// once its scaffolding is in place.
+    pub fn verify_advisory_attrs(nix_system: &str) -> Vec<String> {
+        ["advisory-flux-models"]
+            .iter()
+            .map(|leaf| format!("checks.{nix_system}.{leaf}"))
+            .collect()
+    }
+
+    /// `build` phase attribute list (release artifacts). Mirrors
+    /// `bin/ci/ci-linux.sh:443-457`. `arch` is the container arch suffix
+    /// (`x86_64`, `aarch64`). GPU server is x86_64-only.
+    pub fn build_attrs(nix_system: &str, arch: &str) -> Vec<String> {
+        let mut attrs = vec![
+            format!("packages.{nix_system}.conceptdb-server-linux-{arch}"),
+            format!("packages.{nix_system}.conceptdb-web-linux-{arch}"),
+            format!("packages.{nix_system}.conceptdb-docs-linux-{arch}"),
+            format!("packages.{nix_system}.conceptdb-sbom"),
+            format!("packages.{nix_system}.conceptdb-cli"),
+            format!("packages.{nix_system}.conceptdb-portal-wasm"),
+            format!("packages.{nix_system}.conceptdb-spreadsheet-editor-wasm"),
+            format!("packages.{nix_system}.conceptdb-core-dataflow-wasm"),
+        ];
+        if arch == "x86_64" {
+            attrs.push(format!(
+                "packages.{nix_system}.conceptdb-server-linux-{arch}-gpu"
+            ));
+        }
+        attrs
+    }
+
+    /// Map a `build` phase attr leaf to its export `(dest_subdir, ArtifactKind)`
+    /// for the run dir. Mirrors `_phase3_export_target` in
+    /// `bin/ci/ci-linux.sh:461-483`. Returns `(dest_subdir, kind_str)` —
+    /// the caller wires `kind_str` into `manifest::ArtifactKind`.
+    pub fn build_export_target(attr_leaf: &str, arch: &str) -> (String, &'static str) {
+        if attr_leaf.starts_with("conceptdb-") && attr_leaf.contains("-linux-") {
+            // server, web, docs, server-gpu — all container tarballs.
+            (attr_leaf.to_string(), "image")
+        } else if attr_leaf == "conceptdb-sbom" {
+            ("sbom".to_string(), "sbom")
+        } else if attr_leaf == "conceptdb-cli" {
+            (format!("{attr_leaf}-{arch}"), "binary")
+        } else if attr_leaf.starts_with("conceptdb-") && attr_leaf.ends_with("-wasm") {
+            let child = attr_leaf
+                .strip_prefix("conceptdb-")
+                .unwrap_or(attr_leaf)
+                .strip_suffix("-wasm")
+                .unwrap_or(attr_leaf);
+            (format!("conceptdb-wasm/{child}"), "wasm")
+        } else {
+            (attr_leaf.to_string(), "binary")
+        }
+    }
+
+    /// Tier classifier for the `required-*` / `advisory-*` convention used
+    /// in ConceptDB's `checks.${NIX_SYSTEM}.<leaf>` attribute names. Strips
+    /// the optional `checks.<system>.` prefix before matching so callers
+    /// can pass either the full attr path or the leaf.
+    pub fn tier_classifier(attr: &str) -> Tier {
+        let leaf = attr.rsplit('.').next().unwrap_or(attr);
+        if leaf.starts_with("required-") {
+            Tier::Required
+        } else if leaf.starts_with("advisory-") {
+            Tier::Advisory
+        } else {
+            // Unknown prefix → conservative default: treat as Required so
+            // an unintentional advisory typo doesn't silently downgrade a
+            // gate.
+            Tier::Required
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn verify_attrs_format() {
+            let a = verify_attrs("x86_64-linux");
+            assert!(a.contains(&"checks.x86_64-linux.required-rust-nextest".to_string()));
+            assert!(a.contains(&"checks.x86_64-linux.required-ts-vitest".to_string()));
+            assert!(a.contains(&"checks.x86_64-linux.required-ts-format".to_string()));
+            assert!(a.contains(&"checks.x86_64-linux.required-hakari-verify".to_string()));
+            assert!(a.contains(&"checks.x86_64-linux.required-proto-freshness".to_string()));
+            assert_eq!(a.len(), 12);
+        }
+
+        #[test]
+        fn verify_advisory_attrs_format() {
+            let a = verify_advisory_attrs("x86_64-linux");
+            assert!(a.contains(&"checks.x86_64-linux.advisory-flux-models".to_string()));
+            // Advisory tier so a failure never blocks the Required verdict.
+            assert!(matches!(
+                tier_classifier("advisory-flux-models"),
+                Tier::Advisory
+            ));
+        }
+
+        #[test]
+        fn build_attrs_format() {
+            let a = build_attrs("x86_64-linux", "x86_64");
+            assert!(a.contains(&"packages.x86_64-linux.conceptdb-server-linux-x86_64".to_string()));
+            assert!(a.contains(&"packages.x86_64-linux.conceptdb-sbom".to_string()));
+            // GPU server only on x86_64.
+            assert!(
+                a.contains(&"packages.x86_64-linux.conceptdb-server-linux-x86_64-gpu".to_string())
+            );
+        }
+
+        #[test]
+        fn build_attrs_aarch64_excludes_gpu() {
+            let a = build_attrs("aarch64-linux", "aarch64");
+            assert!(!a.iter().any(|s| s.contains("-gpu")));
+        }
+
+        #[test]
+        fn build_export_target_image() {
+            let (dest, kind) = build_export_target("conceptdb-server-linux-x86_64", "x86_64");
+            assert_eq!(dest, "conceptdb-server-linux-x86_64");
+            assert_eq!(kind, "image");
+        }
+
+        #[test]
+        fn build_export_target_sbom() {
+            let (dest, kind) = build_export_target("conceptdb-sbom", "x86_64");
+            assert_eq!(dest, "sbom");
+            assert_eq!(kind, "sbom");
+        }
+
+        #[test]
+        fn build_export_target_binary() {
+            let (dest, kind) = build_export_target("conceptdb-cli", "x86_64");
+            assert_eq!(dest, "conceptdb-cli-x86_64");
+            assert_eq!(kind, "binary");
+        }
+
+        #[test]
+        fn build_export_target_wasm() {
+            let (dest, kind) = build_export_target("conceptdb-portal-wasm", "x86_64");
+            assert_eq!(dest, "conceptdb-wasm/portal");
+            assert_eq!(kind, "wasm");
+        }
+
+        #[test]
+        fn tier_required_when_prefix_matches() {
+            assert_eq!(tier_classifier("required-rust-fmt"), Tier::Required);
+            assert_eq!(
+                tier_classifier("checks.x86_64-linux.required-rust-fmt"),
+                Tier::Required
+            );
+        }
+
+        #[test]
+        fn tier_advisory_when_prefix_matches() {
+            assert_eq!(tier_classifier("advisory-something"), Tier::Advisory);
+        }
+
+        #[test]
+        fn tier_unknown_defaults_to_required() {
+            assert_eq!(tier_classifier("rust-nextest"), Tier::Required);
+        }
+
+        #[test]
+        fn passthrough_vars_contains_branch() {
+            assert!(CI_PASSTHROUGH_VARS.contains(&"BRANCH"));
+            assert!(CI_PASSTHROUGH_VARS.contains(&"OTEL_EXPORTER_OTLP_ENDPOINT"));
+        }
+    }
+}

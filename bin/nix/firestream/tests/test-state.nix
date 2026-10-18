@@ -5,22 +5,27 @@
 let
   stateModule = firestream.lib.state;
 
-  # Test that all expected functions are present
+  # Test that all expected functions are present.
+  #
+  # Inspects the emitted library FILE, not a shell string — same fix as
+  # test-config.nix. Interpolating the whole library into
+  # `functions="${"\${"}stateModule.functions}"` left the enclosing script
+  # unparseable ("syntax error near unexpected token `('"), so this check could
+  # never run. It is only reachable through the `firestream-tests` aggregate,
+  # which is why it went unnoticed while the granular checks were green.
   testFunctionsExist = pkgs.runCommand "test-state-functions-exist" {} ''
     echo "Testing state module functions exist..."
 
-    # Check that functions string is not empty
-    if [ -z "${stateModule.functions}" ]; then
-      echo "FAIL: functions string is empty"
+    lib_file="${stateModule.script}/opt/firestream/scripts/libstate.sh"
+
+    if [ ! -s "$lib_file" ]; then
+      echo "FAIL: state library file is missing or empty: $lib_file"
       exit 1
     fi
 
-    # Check for expected function definitions
-    functions="${stateModule.functions}"
-
     for fn in get_state_dir get_config_hash save_config_hash has_config_changed get_generation increment_generation record_activation check_prepopulated mark_prepopulated get_activation_time clear_state; do
-      if ! echo "$functions" | grep -q "$fn()"; then
-        echo "FAIL: function $fn not found"
+      if ! ${pkgs.gnugrep}/bin/grep -q "^[[:space:]]*$fn()" "$lib_file"; then
+        echo "FAIL: function $fn not found in $lib_file"
         exit 1
       fi
     done

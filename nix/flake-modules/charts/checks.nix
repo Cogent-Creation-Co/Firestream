@@ -94,6 +94,11 @@
         # chart's mountPaths. The bare chart obviously doesn't have those,
         # so strip them from BOTH renders before diffing. Match on exact
         # env-var name (trailing `$`) so `AIRFLOW_DATABASE_*` etc. survive.
+        # Phase E: SeaweedFS is the default local S3 backend, so the
+        # flake-module injects five S3_LOCAL_* env vars into every airflow pod
+        # (nix/flake-modules/charts/airflow.nix). The bare chart has no such
+        # block. Strip them from BOTH renders — scoped to these exact five names
+        # so any other S3_* or unexpected env var still shows up as a diff.
         normalise() {
           sed -E \
             -e 's,^([[:space:]]*(postgres-password|password|redis-password|airflow-password|airflow-fernet-key|airflow-secret-key|airflow-jwt-secret-key):[[:space:]]*).*,\1<RANDOM>,' \
@@ -101,6 +106,8 @@
             -e 's,^([[:space:]]*image:[[:space:]]*).*,\1<IMAGE>,' \
             -e '/\.initialized/d' \
             -e '/^[[:space:]]+- name: AIRFLOW_(CONF_FILE|WEBSERVER_CONF_FILE|LOGS_DIR|SCHEDULER_LOGS_DIR|TMP_DIR|DAGS_DIR|PLUGINS_DIR)$/{N;d;}' \
+            -e '/^[[:space:]]+- name: S3_LOCAL_(ENDPOINT_URL|ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET_NAME|DEFAULT_REGION)$/{N;d;}' \
+            -e '/^[[:space:]]+- name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES$/{N;s,value:.*,value: <PRELOAD>,;}' \
             "$1"
         }
         normalise bare.raw.yaml     > bare.yaml
@@ -337,6 +344,7 @@
             -e 's,^([[:space:]]*checksum/secret:[[:space:]]*).*,\1<RANDOM>,' \
             -e 's,^([[:space:]]*image:[[:space:]]*).*,\1<IMAGE>,' \
             -e '/^[[:space:]]+- name: SPARK_(CONF_DIR|CONF_FILE|LOG_DIR|TMP_DIR|WORK_DIR|DATA_DIR|USER_JARS_DIR)$/{N;d;}' \
+            -e '/^[[:space:]]+- name: S3_LOCAL_(ENDPOINT_URL|ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET_NAME|DEFAULT_REGION)$/{N;d;}' \
             "$1"
         }
         normalise bare.raw.yaml     > bare.yaml
@@ -428,6 +436,8 @@
             -e 's,^([[:space:]]*app\.kubernetes\.io/version:[[:space:]]*).*,\1<VERSION>,' \
             -e '/\.initialized/d' \
             -e '/^[[:space:]]+- name: JUPYTERHUB_(CONF_FILE|CONF_DIR|TMP_DIR|PID_FILE|LOGS_DIR|LOG_FILE|DATA_DIR|VOLUME_DIR)$/{N;d;}' \
+            -e '/^[[:space:]]+- name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES$/{N;s,value:.*,value: <PRELOAD>,;}' \
+            -e '/^[[:space:]]+command:$/{N;/- configurable-http-proxy$/d;}' \
             "$1"
         }
         normalise bare.raw.yaml     > bare.yaml
@@ -509,6 +519,8 @@
             -e 's,^([[:space:]]*image:[[:space:]]*).*,\1<IMAGE>,' \
             -e '/\.initialized/d' \
             -e '/^[[:space:]]+- name: SUPERSET_(HOME_DIR|CONFIG_PATH|LOG_DIR|TMP_DIR)$/{N;d;}' \
+            -e '/^[[:space:]]+- name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES$/{N;s,value:.*,value: <PRELOAD>,;}' \
+            -e '/^[[:space:]]+- name: SUPERSET_LOAD_EXAMPLES$/{N;d;}' \
             "$1"
         }
         normalise bare.raw.yaml     > bare.yaml

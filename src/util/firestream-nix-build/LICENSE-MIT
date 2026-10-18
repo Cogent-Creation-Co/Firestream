@@ -1,0 +1,46 @@
+MIT License
+
+Copyright (c) Jörg Thalheim (Mic92) and the nix-fast-build contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+PROVENANCE NOTE (not part of the license text)
+
+This file records the license of the upstream project this crate is a port of:
+
+    https://github.com/Mic92/nix-fast-build
+
+Upstream is MIT-licensed. The MIT license body above is the canonical,
+unmodified MIT text.
+
+The copyright line above was NOT copied from the upstream LICENSE file. This
+crate was ported into Firestream without network access, and no copy of
+upstream's LICENSE file exists anywhere in this repository or on the build
+host, so the exact wording and year of upstream's copyright line could not be
+transcribed verbatim. The attribution names the upstream project's author as
+identified by the repository owner (`Mic92` = Jörg Thalheim) and its
+contributors.
+
+ACTION: on the next occasion where the upstream repository is reachable,
+replace the copyright line above with the verbatim line from
+`https://github.com/Mic92/nix-fast-build/blob/main/LICENSE`.
+
+Modifications made in this port are copyright Cogent Creation Co. and are
+licensed Apache-2.0; see `../LICENSE` and `FORK.md`.

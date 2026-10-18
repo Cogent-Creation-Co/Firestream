@@ -12,11 +12,21 @@ use crate::platform::PlatformInfo;
 use crate::progress::{BuildPhase, BuildProgress, MultiProgress};
 use crate::strategy::{create_strategy_with_workspace, BuildMode, BuildStrategy};
 use futures::stream::{self, StreamExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+/// Is this build artifact a path inside the (read-only) Nix store?
+///
+/// The native strategy hands back `--print-out-paths` output, which lives in
+/// `/nix/store` and must never be unlinked: the store is read-only, so the
+/// attempt fails, and on a store where it *would* succeed it would be
+/// corruption. The Docker strategy hands back a genuine temp file.
+fn is_nix_store_path(path: &Path) -> bool {
+    path.starts_with("/nix/store")
+}
 
 /// Result of a successful container build
 #[derive(Debug, Clone, serde::Serialize)]
@@ -261,9 +271,24 @@ impl NixContainerBuilder {
         progress(BuildProgress::loading(name));
         let load_result = self.loader.load_image(&tarball_path).await?;
 
-        // Clean up the tarball
-        if let Err(e) = std::fs::remove_file(&tarball_path) {
-            warn!("Failed to clean up tarball: {}", e);
+        // Clean up the tarball.
+        //
+        // ONLY when it is ours to delete. The native Nix strategy returns a
+        // `/nix/store/...` path straight out of `--print-out-paths`; the store
+        // is read-only, so this unlink can only ever fail there (today a warn,
+        // a hard error the moment anyone promotes it), and if it ever DID
+        // succeed it would be corrupting the store. The Docker strategy writes
+        // a real temp tarball, which is the case this cleanup exists for.
+        // `build_package_with_progress` omits the cleanup entirely.
+        if !is_nix_store_path(&tarball_path) {
+            if let Err(e) = std::fs::remove_file(&tarball_path) {
+                warn!("Failed to clean up tarball: {}", e);
+            }
+        } else {
+            debug!(
+                "Skipping cleanup of read-only Nix store path: {}",
+                tarball_path.display()
+            );
         }
 
         let duration = start.elapsed();

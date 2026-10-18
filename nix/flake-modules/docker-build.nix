@@ -1,21 +1,25 @@
-# Docker-based Linux image builder flake-module
+# Linux image builder flake-module (native-first, Docker fallback)
 # Copyright Firestream. MIT License.
 #
-# Makes "build a Linux container image from a Darwin host via Docker" a
-# first-class flake capability. Firestream's container images are built with
-# dockerTools and are gated behind `isLinux`; on macOS `nix build .#airflow`
-# yields a stub. This module ships a self-contained shell app that runs the Nix
-# build *inside* a `nixos/nix` Linux container (selecting `--platform`), then
-# loads the resulting image tarball into the local Docker daemon.
+# Makes "build a Linux container image" a first-class flake capability on every
+# host. Firestream's container images are built with dockerTools and are gated
+# behind `isLinux`; on macOS `nix build .#airflow` yields a stub. This module
+# ships a self-contained shell app that builds against the host's /nix/store
+# when that is possible, and otherwise runs the Nix build *inside* a `nixos/nix`
+# Linux container (selecting `--platform`); either way it can then load the
+# resulting image tarball into the local Docker daemon.
+#
+# The native-vs-Docker decision lives in bin/build/strategy.sh, sourced below
+# as a /nix/store path so this app stays usable without a repo checkout.
 #
 # It contributes (on EVERY system, Darwin and Linux):
 #   - apps.build-image            generic: `nix run .#build-image -- <pkg> [opts]`
 #   - apps.<name>-image           one per image registry key (airflow-image, ...)
 #   - _module.args.firestreamBuildImage   the builder derivation (used by compose.nix)
 #
-# The logic mirrors the proven bin/build/container-images.sh: a persistent
-# per-arch Nix store volume for caching, git-worktree dir mounts, and `docker
-# load` of the dereferenced tarball.
+# The Docker fallback mirrors the proven bin/build/container-images.sh: a
+# persistent per-arch Nix store volume for caching, git-worktree dir mounts, and
+# `docker load` of the dereferenced tarball.
 { inputs, ... }: {
   perSystem = { pkgs, lib, config, system, ... }:
     let
@@ -26,6 +30,14 @@
         set -euo pipefail
         export PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.gawk pkgs.git ]}:"$PATH"
 
+        # Shared build-strategy predicate + build primitives. Baked in as a
+        # store path so this works with no repo checkout. NOTE: deliberately no
+        # pkgs.nix in makeBinPath above - the host's `nix` (and its daemon
+        # socket) must win; a store `nix` would bloat the closure and risk a
+        # client/daemon version mismatch.
+        # shellcheck source=../../bin/build/strategy.sh
+        source ${../../bin/build/strategy.sh}
+
         # Baked at app-build time: the flake's own source (store path) is the
         # fallback when not invoked from inside a Firestream working tree.
         SELF_STORE_PATH=${inputs.self}
@@ -33,7 +45,8 @@
 
         usage() {
           cat <<'EOF'
-        firestream-build-image — build a Firestream container image via Docker.
+        firestream-build-image — build a Firestream container image with Nix
+        (natively when possible, otherwise inside a nixos/nix Docker builder).
 
         Usage: firestream-build-image <package> [options]
 
@@ -46,7 +59,13 @@
           --out <dir>          Directory for the output tarball (default: ./.firestream-build)
           --flake <ref>        Flake directory to build from (default: enclosing
                                Firestream repo, else the pinned firestream source)
+          --native             Force a native build against the host /nix/store
+          --docker             Force the nixos/nix Docker builder
           -h, --help           Show this help
+
+        Strategy defaults to native on Linux when the target arch matches the
+        host, `nix` is on PATH, and we are not inside a container; otherwise the
+        Docker builder. Override globally with FIRESTREAM_BUILD_STRATEGY=auto|native|docker.
         EOF
         }
 
@@ -63,6 +82,8 @@
             --no-load)       DO_LOAD=0; shift ;;
             --out)           OUT_DIR="$2"; shift 2 ;;
             --flake)         FLAKE_DIR_OVERRIDE="$2"; shift 2 ;;
+            --native)        export FIRESTREAM_BUILD_STRATEGY=native; shift ;;
+            --docker)        export FIRESTREAM_BUILD_STRATEGY=docker; shift ;;
             -h|--help)       usage; exit 0 ;;
             -*)              echo "Unknown option: $1" >&2; usage; exit 1 ;;
             *)               if [ -z "$PKG" ]; then PKG="$1"; else echo "Unexpected argument: $1" >&2; exit 1; fi; shift ;;
@@ -70,14 +91,14 @@
         done
 
         [ -n "$PKG" ] || { usage; exit 1; }
-        command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found on PATH" >&2; exit 1; }
 
-        # Map arch -> docker platform + per-arch persistent Nix store volume.
-        case "$TARGET_ARCH" in
-          x86_64|amd64)  PLATFORM="linux/amd64"; NIX_VOLUME="firestream-nix-store-amd64" ;;
-          aarch64|arm64) PLATFORM="linux/arm64"; NIX_VOLUME="firestream-nix-store-arm64" ;;
-          *)             PLATFORM="linux/$TARGET_ARCH"; NIX_VOLUME="firestream-nix-store-$TARGET_ARCH" ;;
-        esac
+        # docker is no longer an unconditional requirement - it is needed only
+        # for the docker strategy (checked inside fs_nix_build_docker) or for
+        # --load.
+        STRATEGY="$(fs_choose_strategy "$TARGET_ARCH")"
+        if [ "$STRATEGY" = "docker" ] || [ "$DO_LOAD" -eq 1 ]; then
+          command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found on PATH" >&2; exit 1; }
+        fi
 
         # Find the enclosing Firestream working tree (flake.nix + container dir).
         find_repo_root() {
@@ -103,52 +124,18 @@
         OUT_DIR="''${OUT_DIR:-$PWD/.firestream-build}"
         mkdir -p "$OUT_DIR"
 
-        BUILDER_IMAGE="nixos/nix:latest"
-        echo ">>> Pulling builder ($PLATFORM)..." >&2
-        docker pull --platform "$PLATFORM" "$BUILDER_IMAGE" >/dev/null 2>&1 || true
-
-        MOUNTS=( --mount "type=volume,source=$NIX_VOLUME,target=/nix"
-                 -v "$OUT_DIR:/out" )
-
+        # A /nix/store source snapshot is itself a valid flake directory, so the
+        # native path needs no bind-mount/worktree apparatus at all: pass the
+        # resolved dir plus the uniform ".#$PKG" ref. fs_nix_build_docker owns
+        # the equivalent mount handling (/flake for store snapshots, original
+        # path + git dirs for a live worktree) for the fallback.
         case "$FLAKE_DIR" in
-          /nix/store/*)
-            # Clean source snapshot (e.g. external consumer): mount at /flake.
-            MOUNTS+=( -v "$FLAKE_DIR:/flake:ro" )
-            WORKDIR="/flake"
-            FLAKE_REF="/flake#$PKG"
-            ;;
-          *)
-            # Live working tree: mount at its original path so worktree .git
-            # pointers resolve, and add the worktree's git dirs (read-only).
-            FLAKE_DIR="$(cd "$FLAKE_DIR" && pwd -P)"
-            MOUNTS+=( -v "$FLAKE_DIR:$FLAKE_DIR:ro" )
-            WORKDIR="$FLAKE_DIR"
-            FLAKE_REF=".#$PKG"
-            if [ -f "$FLAKE_DIR/.git" ]; then
-              gitdir="$(sed 's/^gitdir: //' "$FLAKE_DIR/.git" | tr -d '\n\r')"
-              case "$gitdir" in /*) : ;; *) gitdir="$FLAKE_DIR/$gitdir" ;; esac
-              gitdir="$(cd "$gitdir" && pwd -P)"
-              if [ -f "$gitdir/commondir" ]; then
-                maindir="$(cd "$gitdir/$(tr -d '\n\r' < "$gitdir/commondir")" && pwd -P)"
-              else
-                maindir="$(cd "$gitdir/../.." && pwd -P)"
-              fi
-              MOUNTS+=( -v "$gitdir:$gitdir:ro" -v "$maindir:$maindir:ro" )
-              echo ">>> Worktree detected; mounting git dirs" >&2
-            fi
-            ;;
+          /nix/store/*) : ;;
+          *)            FLAKE_DIR="$(cd "$FLAKE_DIR" && pwd -P)" ;;
         esac
 
-        echo ">>> Building $PKG for $PLATFORM (flake: $FLAKE_DIR)..." >&2
-        docker run --rm --platform "$PLATFORM" "''${MOUNTS[@]}" -w "$WORKDIR" \
-          "$BUILDER_IMAGE" \
-          sh -c '
-            set -eu
-            echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-            git config --global --add safe.directory "*" 2>/dev/null || true
-            nix build "'"$FLAKE_REF"'" -o /tmp/result -L --no-update-lock-file
-            cp -L /tmp/result "/out/'"$PKG"'.tar.gz"
-          '
+        echo ">>> Building $PKG for $TARGET_ARCH (flake: $FLAKE_DIR)..." >&2
+        fs_build_image "$FLAKE_DIR" ".#$PKG" "$OUT_DIR/$PKG.tar.gz" "$TARGET_ARCH"
 
         TARBALL="$OUT_DIR/$PKG.tar.gz"
         [ -s "$TARBALL" ] || { echo "ERROR: build produced no tarball: $TARBALL" >&2; exit 1; }

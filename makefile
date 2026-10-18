@@ -853,7 +853,11 @@ nix-fix:
 	nix-collect-garbage -d
 
 # ==============================================================================
-# Flake-native container builds & deploys (Docker-based, works on macOS)
+# Flake-native container builds & deploys
+#
+# Builds run natively against the host /nix/store when possible and fall back to
+# a nixos/nix Docker builder otherwise (macOS host, cross-arch target, no nix on
+# PATH, or running inside a container). Override with STRATEGY=native|docker.
 #
 # These drive the first-class flake apps:
 #   apps.<name>-image  - build a Linux image via Docker and load it locally
@@ -870,6 +874,36 @@ nix-fix:
 # ==============================================================================
 
 ARCH ?=
+
+# Build strategy: auto (default) | native | docker
+# Exported so every build entry point below inherits it with no further edits:
+# container-build-%, the per-app *-build targets (via BUILD_CONTAINER),
+# manifest / sbom-%, and flake-image-%.
+STRATEGY ?=
+ifneq ($(STRATEGY),)
+export FIRESTREAM_BUILD_STRATEGY := $(STRATEGY)
+endif
+
+# Build IMPLEMENTATION: bash (default) | rust
+#
+# Orthogonal to STRATEGY. STRATEGY picks native-vs-docker; IMPL picks WHICH
+# CODE decides that and drives the build:
+#
+#   IMPL unset / bash  bin/build/container-images.sh + bin/build/manifest.sh
+#                      (unchanged, still the default, still the proven path)
+#   IMPL=rust          `firestream-ci build images` / `firestream-ci build manifest`
+#
+# The Rust path is a strangler under evaluation: it must be observed building a
+# real image on both a Linux and a Darwin host before it can become the default
+# and before the two scripts can be deleted. See the DELETION CHECKLIST at the
+# top of bin/build/container-images.sh.
+#
+#   make redis-build IMPL=rust
+#   make manifest IMPL=rust
+IMPL ?=
+ifneq ($(IMPL),)
+export FIRESTREAM_BUILD_IMPL := $(IMPL)
+endif
 
 # Build + load a single container image (override target arch with ARCH=x86_64).
 flake-image-%:
@@ -899,21 +933,34 @@ docker-reset:
 # Builder Cache Management
 # ==============================================================================
 
-# Show Nix store cache usage (volume-based caching)
+# Show Nix store cache usage
 builder-cache-stats:
-	@echo "=== Nix Store Cache Volumes ==="
+	@echo "=== Docker fallback cache (macOS / cross-arch only) ==="
 	@docker volume ls --filter name=firestream-nix-store
 	@echo ""
 	@for vol in $$(docker volume ls -q --filter name=firestream-nix-store); do \
 		echo "  $$vol"; \
 	done
+	@echo ""
+	@echo "=== Host Nix store (native builds) ==="
+	@if command -v nix >/dev/null 2>&1; then \
+		du -sh /nix/store 2>/dev/null || echo "  /nix/store (size unavailable)"; \
+	else \
+		echo "  nix not on PATH - all builds use the Docker fallback"; \
+	fi
 
 # Clean Nix store cache (reclaim disk space)
+# This is what reclaims the Docker builder volumes (historically ~100+ GB).
+# Keep firestream-nix-store-arm64 if you still build with ARCH=aarch64, and
+# note that on a macOS host BOTH volumes remain live.
+# Native builds instead pin store paths via GC roots under _build/; clear
+# _build/ and run `nix store gc` to reclaim those.
 builder-cache-clean:
-	@echo "Removing Nix store cache volumes..."
+	@echo "Removing Nix store cache volumes (Docker fallback builder)..."
 	-docker volume rm firestream-nix-store-amd64 2>/dev/null || true
 	-docker volume rm firestream-nix-store-arm64 2>/dev/null || true
-	@echo "Cache cleared. Next build will be slower (cold cache)."
+	@echo "Cache cleared. Next Docker-strategy build will be slower (cold cache)."
+	@echo "Note: native builds are unaffected; they use the host /nix/store."
 
 # ==============================================================================
 # SBOM / Fleet Manifest
@@ -991,6 +1038,144 @@ test:
 .PHONY: build
 build:
 	cargo build --workspace
+
+# ==============================================================================
+# Isolated util workspace (src/util)
+#
+# `src/util/` is its OWN virtual Cargo workspace (edition 2021, MSRV 1.82, its
+# own Cargo.lock) holding firestream-ci, firestream-otel-cli and
+# firestream-nix-build. It is deliberately NOT a member of the repo-root
+# workspace: Firestream's crates are edition 2024, and src/util's lockfile
+# carries ~15 duplicate transitive majors (tonic, axum x2, reqwest, rustls,
+# bollard, git2, superconsole, ratatui) that would slow every root
+# `cargo build --workspace` and fight Firestream's own pins.
+#
+# ACCEPTED CONSEQUENCE of that isolation: the root `cargo test --workspace` /
+# `cargo build --workspace` above do NOT cover src/util. These two targets are
+# the only way it gets built and tested.
+#
+# Nix equivalents (built binaries, no cargo needed):
+#   nix build .#firestream-ci .#otel-cli .#firestream-nix-build
+# All three are also on PATH inside `nix develop`.
+#
+# libz note: git2 -> libgit2-sys -> libz-sys links libz dynamically, so no test
+# binary here will even launch without libz.so.1 on the loader path. The dev
+# shell exports FIRESTREAM_UTIL_LIB_PATH for exactly this; if it is set we
+# prepend it, otherwise we rely on the system loader path.
+# ==============================================================================
+
+UTIL_DIR := src/util
+
+.PHONY: build-util
+build-util:
+	@cd $(UTIL_DIR) && \
+	if [ -n "$$FIRESTREAM_UTIL_LIB_PATH" ]; then \
+		export LD_LIBRARY_PATH="$$FIRESTREAM_UTIL_LIB_PATH$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"; \
+	fi; \
+	cargo build --workspace
+
+.PHONY: test-util
+test-util: test-strategy-parity test-registry-parity
+	@cd $(UTIL_DIR) && \
+	if [ -n "$$FIRESTREAM_UTIL_LIB_PATH" ]; then \
+		export LD_LIBRARY_PATH="$$FIRESTREAM_UTIL_LIB_PATH$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"; \
+	fi; \
+	cargo test --workspace
+
+# The anti-drift gate for the native-vs-docker predicate. bin/build/strategy.sh
+# (the zero-dependency shell mirror sourced by _common.sh and docker-build.nix)
+# and firestream_ci::platform (the authority) are driven over the SAME golden
+# vectors in bin/build/strategy-cases.json. This target is the shell half; the
+# Rust half runs as `cargo test -p firestream-ci platform` inside test-util.
+.PHONY: test-strategy-parity
+test-strategy-parity:
+	@bash bin/build/test-strategy-parity.sh
+
+# The anti-drift gate for the OTHER table the Rust build path has to reproduce:
+# container -> Nix package name. bin/build/_common.sh's CONTAINER_REGISTRY,
+# bin/nix/firestream/ci/profile.nix's `containerRegistry` and
+# firestream_ci::profile::Profile::resolve_package_name are all driven from
+# bin/build/registry-cases.json. This target is the shell half; the Rust half
+# runs as `cargo test -p firestream-ci registry_parity` inside test-util.
+#
+# Why it matters: `.#redis` is redis-8 in the flake while a bare `redis` on the
+# build path is redis-7. Drift there sends `make redis-7-start` into a rebuild
+# loop with no error message.
+.PHONY: test-registry-parity
+test-registry-parity:
+	@bash bin/build/test-registry-parity.sh
+
+# ==============================================================================
+# CI entry points
+#
+# `firestream-ci ci-linux` runs the phase DAG declared in the CI PROFILE
+# (bin/nix/firestream/ci/profile.nix -> ci-manifest.json). There is no phase
+# list here, in the makefile, or in Rust — change the profile, not these
+# targets.
+#
+#   make ci-check   tidy + verify        (the PR gate; no images, no charts)
+#   make ci         tidy + verify + build + attest   (the release pipeline)
+#
+# Requires the devshell: firestream-ci, nix-eval-jobs and FIRESTREAM_CI_PROFILE
+# all come from `nix develop`. A bare shell is rejected by the sentinel guard
+# with instructions rather than failing halfway through verify.
+#
+# STRATEGY passthrough (same knob as the container targets): `make ci
+# STRATEGY=docker` forces the Docker builder without a code change; leaving it
+# unset means `auto`, which on a Linux host with nix resolves to a native build
+# against the host /nix/store. `firestream-ci platform decide` reports the
+# decision and its reason.
+#
+# The tidy phase's store GC deliberately does NOT run on a host store — under
+# native-first that store is both the CI cache and the developer's working
+# store. Reclaim explicitly with `firestream-ci nix gc --allow-host`.
+.PHONY: ci ci-check
+ci:
+	@$(if $(STRATEGY),FIRESTREAM_BUILD_STRATEGY=$(STRATEGY) ,)firestream-ci ci-linux --mode release
+
+ci-check:
+	@$(if $(STRATEGY),FIRESTREAM_BUILD_STRATEGY=$(STRATEGY) ,)firestream-ci ci-linux --mode check
+
+# Print the phase DAG, tiers, per-phase attrs and export rules the profile
+# resolves to — and fail if it would run nothing. Executes no builds.
+.PHONY: ci-dry-run
+ci-dry-run:
+	@firestream-ci ci-linux --mode release --dry-run
+
+# ------------------------------------------------------------------------------
+# `mode=e2e` — the advisory e2e sweep (Phase 9)
+#
+# A THIRD ci mode alongside check/release, and the ONLY mode in which the
+# `e2e-docker-*` / `e2e-k8s-*` phases exist. `make ci` and `make ci-check` are
+# completely unaffected: those phases declare `modes = [ "e2e" ]`, so they are
+# not merely skipped there, they are not materialised at all.
+#
+# What it runs: tidy -> verify (the normal required gate) -> 18 advisory,
+# single-task, strictly-chained phases, each shelling out to exactly the
+# `make test-e2e-*` / `make test-e2e-k8s-*` target you would run by hand.
+# The chain is what serialises them; see the long comment in
+# bin/nix/firestream/ci/profile.nix for why they are NOT parallel tasks.
+#
+# COST: a cold sweep is measured in HOURS and creates 10 real k3d clusters and
+# 8 docker-compose stacks. Do not run it on a laptop you need. Every phase is
+# advisory, so the worst verdict this mode can produce is PartiallyPassed
+# (exit 2) — the exit code .github/workflows/*.yaml already renders as a
+# non-blocking `::warning::`.
+#
+# STRICT: without `FIRESTREAM_E2E{,_K8S}_STRICT=1`, a host missing k3d/helm/
+# docker makes every harness test SKIP, and skip is green. For an unattended
+# run, set both:
+#
+#   FIRESTREAM_E2E_STRICT=1 FIRESTREAM_E2E_K8S_STRICT=1 make ci-e2e
+#
+# Both vars (and the rest of the FIRESTREAM_E2E_* contract) are in the
+# profile's `passthroughVars`, so they survive a lift into the docker builder.
+.PHONY: ci-e2e ci-e2e-dry-run
+ci-e2e:
+	@$(if $(STRATEGY),FIRESTREAM_BUILD_STRATEGY=$(STRATEGY) ,)firestream-ci ci-linux --mode e2e
+
+ci-e2e-dry-run:
+	@firestream-ci ci-linux --mode e2e --dry-run
 
 # ==============================================================================
 # E2E (Phase 1)

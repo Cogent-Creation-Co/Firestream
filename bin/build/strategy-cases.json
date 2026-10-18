@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "_readme": [
+    "Golden vectors for the native-vs-docker build predicate.",
+    "",
+    "TWO harnesses consume this ONE file and must agree:",
+    "  bash: bin/build/test-strategy-parity.sh   (sources bin/build/strategy.sh)",
+    "  rust: src/util/firestream-ci/src/platform/parity.rs (Probe fixtures)",
+    "",
+    "A `case` is:",
+    "  probe            filesystem/PATH conditions, injected by both harnesses",
+    "    uname_s          value of `uname -s`",
+    "    uname_m          value of `uname -m` (RAW, pre-normalisation)",
+    "    nix_on_path      whether `nix` resolves on PATH",
+    "    nix_store_present whether /nix/store is a directory",
+    "    dockerenv_file   whether /.dockerenv exists",
+    "    cgroup           contents of /proc/1/cgroup, or null when absent",
+    "  target_arch      argument to fs_native_blocker/fs_choose_strategy; \"\" = default to host",
+    "  env              process env (FIRESTREAM_BUILD_STRATEGY + container-route vars)",
+    "  profile_default  ci-manifest.json build_strategy.default; RUST ONLY (shell is profile-blind)",
+    "  expect.blocker   fs_native_blocker output; null = empty (native possible). ENV-INDEPENDENT.",
+    "  expect.strategy  fs_choose_strategy output: native | docker",
+    "  expect_shell     OPTIONAL. Only legal when profile_default is set and != \"auto\".",
+    "                   Records the shell's profile-blind answer. The bash harness",
+    "                   REFUSES any expect_shell outside that rule, so it cannot be",
+    "                   used to paper over real drift."
+  ],
+
+  "arch_cases": [
+    { "input": "amd64",   "norm": "x86_64",  "nix_volume": "firestream-nix-store-amd64",   "docker_platform": "linux/amd64" },
+    { "input": "x64",     "norm": "x86_64",  "nix_volume": "firestream-nix-store-x64",     "docker_platform": "linux/x64" },
+    { "input": "x86_64",  "norm": "x86_64",  "nix_volume": "firestream-nix-store-amd64",   "docker_platform": "linux/amd64" },
+    { "input": "arm64",   "norm": "aarch64", "nix_volume": "firestream-nix-store-arm64",   "docker_platform": "linux/arm64" },
+    { "input": "aarch64", "norm": "aarch64", "nix_volume": "firestream-nix-store-arm64",   "docker_platform": "linux/arm64" },
+    { "input": "riscv64", "norm": "riscv64", "nix_volume": "firestream-nix-store-riscv64", "docker_platform": "linux/riscv64" }
+  ],
+  "_arch_cases_note": "input is never empty: get_nix_volume/fs_docker_platform use ${1:-$(uname -m)}, so an empty argument means 'the host arch', not 'the empty arch'. The empty-target semantics of the predicate are covered by the case named native-happy-path-empty-target-defaults-to-host.",
+
+  "cases": [
+    {
+      "name": "native-happy-path",
+      "why": "Linux, same arch, nix + /nix/store, not containerised.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "native-happy-path-empty-target-defaults-to-host",
+      "why": "Empty target_arch falls back to uname -m via ${1:-$(uname -m)}.",
+      "probe": { "uname_s": "Linux", "uname_m": "aarch64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "native-happy-path-target-alias-normalises",
+      "why": "target amd64 normalises to x86_64 and matches an x86_64 host.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "amd64",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "native-happy-path-host-alias-normalises",
+      "why": "A host reporting amd64 still matches an x86_64 target.",
+      "probe": { "uname_s": "Linux", "uname_m": "amd64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "native-happy-path-unknown-arch-passthrough",
+      "why": "fs_norm_arch passes unknown arches through unchanged; equal is equal.",
+      "probe": { "uname_s": "Linux", "uname_m": "riscv64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "riscv64",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+
+    {
+      "name": "blocker-1-non-linux-darwin",
+      "why": "Probe order slot 1. Image derivations are gated behind isLinux.",
+      "probe": { "uname_s": "Darwin", "uname_m": "arm64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "aarch64",
+      "env": {},
+      "expect": { "blocker": "host is not Linux (uname -s = Darwin); image derivations are gated behind isLinux", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-1-non-linux-freebsd-interpolates-uname",
+      "why": "The uname -s value is interpolated verbatim, not hardcoded to Darwin.",
+      "probe": { "uname_s": "FreeBSD", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "host is not Linux (uname -s = FreeBSD); image derivations are gated behind isLinux", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-2-cross-arch",
+      "why": "Probe order slot 2. Both arches appear NORMALISED in the message.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "aarch64",
+      "env": {},
+      "expect": { "blocker": "cross-arch target (aarch64) differs from host arch (x86_64)", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-2-cross-arch-aliases-normalised-in-message",
+      "why": "target arm64 / host amd64 are reported as aarch64 / x86_64.",
+      "probe": { "uname_s": "Linux", "uname_m": "amd64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "arm64",
+      "env": {},
+      "expect": { "blocker": "cross-arch target (aarch64) differs from host arch (x86_64)", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-2-cross-arch-unknown-target",
+      "why": "Unknown arches pass through normalisation and still compare unequal.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "s390x",
+      "env": {},
+      "expect": { "blocker": "cross-arch target (s390x) differs from host arch (x86_64)", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-3-no-nix-on-path",
+      "why": "Probe order slot 3.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": false, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "nix not found on PATH", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-4-no-nix-store",
+      "why": "Probe order slot 4. nix on PATH but no store (e.g. a stray wrapper).",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": false, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "/nix/store does not exist on this host", "strategy": "docker" }
+    },
+
+    {
+      "name": "blocker-5-container-route-dockerenv",
+      "why": "fs_in_container route 1: /.dockerenv exists.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": true, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-kubernetes-service-host",
+      "why": "fs_in_container route 2: $KUBERNETES_SERVICE_HOST non-empty.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "KUBERNETES_SERVICE_HOST": "10.43.0.1" },
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-CONTAINER-upper",
+      "why": "fs_in_container route 3: $CONTAINER non-empty.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "CONTAINER": "podman" },
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-container-lower",
+      "why": "fs_in_container route 4: $container non-empty (systemd-nspawn/podman convention).",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "container": "oci" },
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-cgroup-docker",
+      "why": "fs_in_container route 5a: /proc/1/cgroup matches 'docker'.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": "12:pids:/docker/9f8e7d6c5b4a\n11:cpu:/docker/9f8e7d6c5b4a\n" },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-cgroup-kubepods",
+      "why": "fs_in_container route 5b: /proc/1/cgroup matches 'kubepods'.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": "0::/kubepods.slice/kubepods-burstable.slice/xyz\n" },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "blocker-5-container-route-cgroup-containerd",
+      "why": "fs_in_container route 5c: /proc/1/cgroup matches 'containerd'.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": "0::/system.slice/containerd.service\n" },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": "running inside a container", "strategy": "docker" }
+    },
+    {
+      "name": "not-a-container-cgroup-present-but-no-match",
+      "why": "Negative control for route 5: a cgroup file that matches none of the patterns.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": "0::/init.scope\n" },
+      "target_arch": "x86_64",
+      "env": {},
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "not-a-container-empty-container-env-vars",
+      "why": "Negative control: EMPTY (not unset) CONTAINER/container must not trip -n.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "CONTAINER": "", "container": "", "KUBERNETES_SERVICE_HOST": "" },
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+
+    {
+      "name": "order-linux-check-precedes-everything",
+      "why": "Every blocker applies at once; slot 1 must win.",
+      "probe": { "uname_s": "Darwin", "uname_m": "arm64", "nix_on_path": false, "nix_store_present": false, "dockerenv_file": true, "cgroup": "0::/docker/x\n" },
+      "target_arch": "x86_64",
+      "env": { "KUBERNETES_SERVICE_HOST": "10.43.0.1", "CONTAINER": "podman", "container": "oci" },
+      "expect": { "blocker": "host is not Linux (uname -s = Darwin); image derivations are gated behind isLinux", "strategy": "docker" }
+    },
+    {
+      "name": "order-cross-arch-precedes-nix-store-container",
+      "why": "Slots 2..5 all apply; slot 2 must win.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": false, "nix_store_present": false, "dockerenv_file": true, "cgroup": "0::/docker/x\n" },
+      "target_arch": "aarch64",
+      "env": { "CONTAINER": "podman" },
+      "expect": { "blocker": "cross-arch target (aarch64) differs from host arch (x86_64)", "strategy": "docker" }
+    },
+    {
+      "name": "order-no-nix-precedes-no-store-and-container",
+      "why": "Slots 3..5 all apply; slot 3 must win.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": false, "nix_store_present": false, "dockerenv_file": true, "cgroup": "0::/docker/x\n" },
+      "target_arch": "x86_64",
+      "env": { "container": "oci" },
+      "expect": { "blocker": "nix not found on PATH", "strategy": "docker" }
+    },
+    {
+      "name": "order-no-store-precedes-container",
+      "why": "Slots 4..5 both apply; slot 4 must win.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": false, "dockerenv_file": true, "cgroup": "0::/kubepods/x\n" },
+      "target_arch": "x86_64",
+      "env": { "KUBERNETES_SERVICE_HOST": "10.43.0.1" },
+      "expect": { "blocker": "/nix/store does not exist on this host", "strategy": "docker" }
+    },
+
+    {
+      "name": "env-force-native-on-clean-host",
+      "why": "FIRESTREAM_BUILD_STRATEGY=native is honoured; blocker is unaffected.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "native" },
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "env-force-native-overrides-a-real-blocker",
+      "why": "PRECEDENCE: the env var is read before any probing, so a Darwin host with no nix still reports native. This is the deliberate escape hatch; fs_native_blocker still reports the truth.",
+      "probe": { "uname_s": "Darwin", "uname_m": "arm64", "nix_on_path": false, "nix_store_present": false, "dockerenv_file": true, "cgroup": null },
+      "target_arch": "aarch64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "native" },
+      "expect": { "blocker": "host is not Linux (uname -s = Darwin); image derivations are gated behind isLinux", "strategy": "native" }
+    },
+    {
+      "name": "env-force-docker-on-clean-native-host",
+      "why": "PRECEDENCE: total rollback with no code revert on a host that could build natively.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "docker" },
+      "expect": { "blocker": null, "strategy": "docker" }
+    },
+    {
+      "name": "env-auto-explicit-falls-through-to-probing",
+      "why": "auto is the documented no-op value.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "auto" },
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "env-empty-string-is-auto",
+      "why": "${FIRESTREAM_BUILD_STRATEGY:-auto} plus the explicit \"\" arm both mean auto.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": false, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "" },
+      "expect": { "blocker": "nix not found on PATH", "strategy": "docker" }
+    },
+    {
+      "name": "env-garbage-warns-and-is-treated-as-auto",
+      "why": "Unrecognised values must NOT fail closed to docker; they warn and probe.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "frobnitz" },
+      "expect": { "blocker": null, "strategy": "native", "warns": true }
+    },
+    {
+      "name": "env-garbage-treated-as-auto-on-blocked-host",
+      "why": "Same, but probing then yields docker for a real reason.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": true, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "NATIVE" },
+      "expect": { "blocker": "running inside a container", "strategy": "docker", "warns": true }
+    },
+
+    {
+      "name": "profile-default-docker-forces-on-clean-native-host",
+      "why": "PRECEDENCE: ci-manifest.json build_strategy.default sits BELOW FIRESTREAM_BUILD_STRATEGY and ABOVE probing. The shell is profile-blind and stays native.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "profile_default": "docker",
+      "expect": { "blocker": null, "strategy": "docker" },
+      "expect_shell": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "profile-default-native-forces-past-a-blocker",
+      "why": "PRECEDENCE: a profile that pins native behaves like the env var, one rung down.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": false, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "profile_default": "native",
+      "expect": { "blocker": "nix not found on PATH", "strategy": "native" },
+      "expect_shell": { "blocker": "nix not found on PATH", "strategy": "docker" }
+    },
+    {
+      "name": "env-beats-profile-default",
+      "why": "PRECEDENCE: env native wins over profile docker. Both harnesses agree here because the env var alone determines the answer.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "native" },
+      "profile_default": "docker",
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "env-docker-beats-profile-native",
+      "why": "PRECEDENCE: mirror of the above.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "docker" },
+      "profile_default": "native",
+      "expect": { "blocker": null, "strategy": "docker" }
+    },
+    {
+      "name": "profile-default-auto-is-a-no-op",
+      "why": "The schema default. Equivalent to the profile-blind shell, so no expect_shell.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "profile_default": "auto",
+      "expect": { "blocker": null, "strategy": "native" }
+    },
+    {
+      "name": "profile-default-garbage-warns-and-is-auto",
+      "why": "A malformed profile must not wedge the build; warn and probe.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": false, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": {},
+      "profile_default": "sometimes",
+      "expect": { "blocker": "/nix/store does not exist on this host", "strategy": "docker", "warns": true },
+      "expect_shell": { "blocker": "/nix/store does not exist on this host", "strategy": "docker" }
+    },
+    {
+      "name": "env-garbage-then-profile-docker",
+      "why": "PRECEDENCE: an unrecognised env value degrades to auto, which then lets the profile speak.",
+      "probe": { "uname_s": "Linux", "uname_m": "x86_64", "nix_on_path": true, "nix_store_present": true, "dockerenv_file": false, "cgroup": null },
+      "target_arch": "x86_64",
+      "env": { "FIRESTREAM_BUILD_STRATEGY": "yes-please" },
+      "profile_default": "docker",
+      "expect": { "blocker": null, "strategy": "docker", "warns": true },
+      "expect_shell": { "blocker": null, "strategy": "native" }
+    }
+  ]
+}

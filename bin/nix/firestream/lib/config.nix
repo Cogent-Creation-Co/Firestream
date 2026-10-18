@@ -29,6 +29,31 @@ let
     # Returns:
     #   None
     #########################
+    ########################
+    # Set a value in an INI file, file-first.
+    #
+    # Thin wrapper over `ini_set` for callers that follow the Bitnami
+    # convention of naming the target file first (matching `replace_in_file`,
+    # `remove_in_file`, ...). No independent logic — argument order only, so
+    # the two can never diverge in behaviour.
+    #
+    # Arguments:
+    #   $1 - file path
+    #   $2 - section name
+    #   $3 - key name
+    #   $4 - value
+    # Returns:
+    #   None
+    #########################
+    ini_file_set() {
+        local file="''${1:?file is required}"
+        local section="''${2:?section is required}"
+        local key="''${3:?key is required}"
+        local value="''${4-}"
+
+        ini_set "$section" "$key" "$value" "$file"
+    }
+
     ini_set() {
         local section="''${1:?section is required}"
         local key="''${2:?key is required}"
@@ -403,6 +428,7 @@ in
   inherit functions;
   exports = [
     "ini_set"
+    "ini_file_set"
     "ini_get"
     "ini_del"
     "ini_has_key"

@@ -5,22 +5,31 @@
 let
   configModule = firestream.lib.config;
 
-  # Test that all expected functions are present
+  # Test that all expected functions are present.
+  #
+  # This inspects the emitted library FILE, not a shell string. The previous
+  # version did `functions="${"\${"}configModule.functions}"` — interpolating the
+  # entire shell library into a double-quoted bash assignment. The embedded
+  # quotes and `if`/`fi` terminated the assignment early and left the enclosing
+  # script unparseable:
+  #
+  #     line 1053: syntax error: unexpected end of file from `if' command on line 4
+  #
+  # so this check could never have run. `configModule.script` is the same path
+  # the INI test below already sources.
   testFunctionsExist = pkgs.runCommand "test-config-functions-exist" {} ''
     echo "Testing config module functions exist..."
 
-    # Check that functions string is not empty
-    if [ -z "${configModule.functions}" ]; then
-      echo "FAIL: functions string is empty"
+    lib_file="${configModule.script}/opt/firestream/scripts/libconfig.sh"
+
+    if [ ! -s "$lib_file" ]; then
+      echo "FAIL: config library file is missing or empty: $lib_file"
       exit 1
     fi
 
-    # Check for expected function definitions
-    functions="${configModule.functions}"
-
-    for fn in ini_set ini_get ini_del ini_has_key python_conf_set python_conf_get url_encode url_decode airflow_encode_url generate_fernet_key process_fernet_key process_secret_key generate_secret_key ini_merge replace_placeholders load_env_file export_default; do
-      if ! echo "$functions" | grep -q "$fn()"; then
-        echo "FAIL: function $fn not found"
+    for fn in ini_set ini_file_set ini_get ini_del ini_has_key python_conf_set python_conf_get url_encode url_decode airflow_encode_url generate_fernet_key process_fernet_key process_secret_key generate_secret_key ini_merge replace_placeholders load_env_file export_default; do
+      if ! ${pkgs.gnugrep}/bin/grep -q "^[[:space:]]*$fn()" "$lib_file"; then
+        echo "FAIL: function $fn not found in $lib_file"
         exit 1
       fi
     done
@@ -177,7 +186,10 @@ VAR2 = 100
 EOF
 
     # Test python_conf_set for new value
-    python_conf_set "VAR1" "newvalue1" "/tmp/config.py" "yes"
+    # is_literal defaults to "no", i.e. the value IS quoted — which is what
+    # the assertions below check. Passing "yes" here (as this test used to) means
+    # "emit the value verbatim, unquoted", contradicting every assertion.
+    python_conf_set "VAR1" "newvalue1" "/tmp/config.py"
     if ! grep -q "VAR1 = 'newvalue1'" /tmp/config.py; then
       cat /tmp/config.py
       echo "FAIL: python_conf_set did not update VAR1"
@@ -186,7 +198,7 @@ EOF
     echo "PASS: python_conf_set updates existing value"
 
     # Test python_conf_set for commented value
-    python_conf_set "VAR3" "uncommented" "/tmp/config.py" "yes"
+    python_conf_set "VAR3" "uncommented" "/tmp/config.py"
     if ! grep -q "VAR3 = 'uncommented'" /tmp/config.py; then
       cat /tmp/config.py
       echo "FAIL: python_conf_set did not uncomment VAR3"
@@ -195,7 +207,7 @@ EOF
     echo "PASS: python_conf_set uncomments values"
 
     # Test python_conf_set for new key
-    python_conf_set "NEWVAR" "newval" "/tmp/config.py" "yes"
+    python_conf_set "NEWVAR" "newval" "/tmp/config.py"
     if ! grep -q "NEWVAR = 'newval'" /tmp/config.py; then
       cat /tmp/config.py
       echo "FAIL: python_conf_set did not add NEWVAR"

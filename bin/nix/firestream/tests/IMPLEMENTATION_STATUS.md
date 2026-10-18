@@ -182,22 +182,96 @@ nix-build ./bin/nix/firestream/tests -A all
 - Add stress tests for concurrent operations
 - Add CI/CD integration (GitHub Actions)
 
-## Known Issues
+## Status: all suites pass
 
-### 1. Empty String Parameter Testing
-**Issue**: Functions using `${1:?missing value}` throw errors on empty strings
-**Solution**: Redirect stderr with `2>/dev/null` for expected failure tests
-**Status**: Being applied to validations tests
+Every suite in this directory is green and gated by CI. `nix flake check` passes.
 
-### 2. Platform-Specific Dependencies
-**Issue**: Some tests require Linux-specific packages (glibc, netcat, systemd)
-**Solution**: Run in Linux environment (DevContainer) or use conditional platform checks
-**Status**: Documented, tests should run in DevContainer
+The sections above describe the suites as originally authored. Several were
+marked **CREATED** / **IN PROGRESS** and had never been made to pass — but they
+were wired into `nix flake check` as if they were real gates. Because the repo
+had no CI, nothing ever ran them, and 8 of 13 were failing the first time the
+pipeline executed. What follows is what changed.
 
-### 3. Network Tests in Sandbox
-**Issue**: Nix sandbox may restrict network operations and DNS
-**Solution**: Tests use localhost and local sockets; may need `--impure` flag
-**Status**: To be verified
+### Aspirational API removed
+
+The failing suites asserted against **25 library functions that do not exist**
+anywhere in the tree and that had **zero callers** — they described a library
+that was never built. Rather than write 25 unused shell functions and ship them
+into every container image, those assertions were removed and replaced with
+assertions against the functions each module really exports.
+
+Removed: `get_port_from_url`, `resolve_hostname_ip`, `wait_for_host`,
+`generate_start_command`, `generate_stop_command`, `generate_reload_command`,
+`is_service_enabled`, `restart_service_if_needed`, `wait_for_service`,
+`append_file`, `append_file_if_not_exists`, `json_set`, `xml_set`,
+`yml_key_set`, `remove_file`, `persist_dir`, `persist_file`,
+`restore_persisted_dir`, `restore_persisted_file`, `backup_persisted_data`,
+`is_dir_persisted`, `list_persisted_files`, `migrate_old_data`.
+
+Implemented instead (each justified): `get_os_metadata` (ported from the
+vendored Bitnami `libos.sh`), `get_total_cpus`, and `ini_file_set` (a file-first
+wrapper over the existing `ini_set`).
+
+**This does not reduce real coverage** — the removed assertions exercised
+functions that did not exist. Where the library already provided the same
+capability under a different name, the assertion was re-pointed rather than
+dropped (`resolve_hostname_ip` → `dns_lookup`, `get_port_from_url` →
+`parse_uri "$uri" port`).
+
+### Product bugs the suites uncovered
+
+Running them for the first time found real defects, not just test breakage:
+
+- **`replace_in_file` had its parameters reversed** — `(match, substitution,
+  filename)` against upstream Bitnami's and every caller's `(filename, match,
+  substitute)`. It is concatenated into every app image via `apps/base.nix`, so
+  a silently-no-op helper shipped everywhere; it only went unnoticed because
+  postgresql and kafka each defined a local override on top. Fixed, and both
+  overrides deleted. `remove_in_file`, `replace_in_file_multiline` and
+  `append_file_after_last_match` had the same inversion.
+- **`replace_in_file_multiline` was never valid perl** — the expression
+  interpolated as `s<match><sub>g`, with no delimiters.
+- **`validate_ip` ignored its version argument** and captured stdout instead of
+  an exit status, so it returned success for essentially any input.
+- **`validate_port 0` was accepted.** Port 0 is not a valid service port.
+- **`get_machine_ip` called `coreutils/bin/hostname`**, which does not exist
+  (coreutils ships `hostid`).
+- **`dns_lookup` and `group_exists` called `glibc.bin/bin/getent`**, which does
+  not exist either — `getent` is its own nixpkgs package.
+- **`retry_while` could not run its documented single-string form**, so
+  `airflow/scripts/init.sh:52` had been failing every attempt and ignoring its
+  retry budget.
+
+### Corrected guidance
+
+The previous "Known Issues" entry advised working around
+`${1:?missing value}` by redirecting stderr in tests. **That advice was wrong**
+and is why those suites still failed: `:?` fires on an *empty* string as well as
+an unset one, and in a non-interactive shell it **terminates the script**
+rather than returning non-zero. Redirecting stderr hides the message but not the
+abort — the suite died with no output at all. Predicate functions documented to
+return a boolean now use `${1-}`; `:?` is kept only for genuinely required
+arguments.
+
+### Structural fixes
+
+`test-config.nix` and `test-state.nix` interpolated an entire shell library into
+a double-quoted bash assignment (`functions="${module.functions}"`). The
+embedded quotes and `if`/`fi` broke the enclosing script's parse, so neither
+check could ever have run. They now grep the emitted library *file* via
+`module.script`.
+
+Fixtures use `printf` rather than indented heredocs: an un-dedented heredoc
+inside a Nix string leaves two leading spaces on every line, which silently
+broke INI parsing and exact-match assertions.
+
+### Still true
+
+- **Platform**: these suites are Linux-gated (`nix/flake-modules/checks.nix`),
+  because the module system pulls Linux-only closures.
+- **Network in the sandbox**: DNS is unavailable in the Nix build sandbox.
+  `get_machine_ip` now falls back to loopback instead of returning empty, and
+  the suites assert only against `localhost`.
 
 ## Success Criteria
 

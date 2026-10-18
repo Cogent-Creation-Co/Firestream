@@ -324,7 +324,7 @@ The flake is the source of truth for helm. Each chart at `src/charts/firestream/
 
 **Aggregate bundle:**
 - `packages.firestream-charts-bundle` (see `nix/flake-modules/charts/`) is a symlink farm with a top-level `index.json` listing every chart (`charts`), every base chart (`baseCharts`), and the `firestreamStacks.dev` composition (`stacks`).
-- Default deploy path: `/opt/firestream/charts/`. Dev-shell sets `FIRESTREAM_CHARTS_DIR=$PWD/.firestream/charts` and best-effort builds the bundle on shell entry.
+- Default deploy path: `/opt/firestream/charts/`. The dev shell exports `FIRESTREAM_CHARTS_DIR` pointing directly at the bundle's `/nix/store` path (env var only — no out-link is written into the working tree; same for `FIRESTREAM_CI_PROFILE`).
 - 9 charts have typed overlays and are in `firestreamCharts` + `firestreamStacks.dev`: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset`, `odoo`, `seaweedfs`.
 - **SeaweedFS is the exception to the Bitnami pattern.** It is a non-Bitnami, Apache-2.0 chart (forked from upstream `seaweedfs/seaweedfs`) whose pods invoke the `weed` binary directly via a `command:` block — so it uses NONE of the Bitnami-compat machinery: no `perContainerHelpers`, no `libhelpers<chart>.sh` emission, no `extraEnvVars` path-remaps, no `firestreamPathOverrides`, and no `global.security.allowInsecureImages` guard. The container is simply "`weed` on PATH". Image injection still uses the canonical `_meta.containerRefs` seam (`componentPath = [ "image" ]` → `.Values.image.{registry,repository,tag}`). SeaweedFS is the **default local S3 object store**: it is deployed FIRST in `firestreamStacks.dev` (object store up before consumers), runs all-in-one single-pod (`weed server -master -volume -filer -s3`) with S3 on 8333, auth on, default bucket `firestream`, creds `firestream`/`firestream-secret`. Its `S3_LOCAL_*` env (`S3_LOCAL_ENDPOINT_URL`, `S3_LOCAL_ACCESS_KEY_ID`, `S3_LOCAL_SECRET_ACCESS_KEY`, `S3_LOCAL_BUCKET_NAME`, `S3_LOCAL_DEFAULT_REGION`) is injected into the spark and airflow charts so Spark/`etl_lib` consume it out of the box (data-driven; no Rust/Python change). Chart data is `emptyDir` by default (ephemeral — fine for dev; a PVC toggle is a production follow-on).
 
@@ -382,7 +382,29 @@ The `firestream-e2e-k8s` crate (`src/lib/rust/firestream-e2e-k8s/`) provides per
 - `FIRESTREAM_E2E_K8S_CHARTS_DIR` — bundle path override (falls through to `FIRESTREAM_CHARTS_DIR`, then `/opt/firestream/charts`)
 - `FIRESTREAM_E2E_K8S_HELM_TIMEOUT` — emergency override only; the chart manifest's `deployment.timeout` is authoritative
 
-**Out of scope**: `firestream-healthd` is embedded in container images but not exposed in chart templates (no `9180` port in airflow chart Service). The k8s harness relies on native chart readiness probes + per-protocol probes (postgres `pg_isready`, redis `redis-cli ping`, etc.); wiring healthd into chart Services is a separate RFC. Harness is local-only — NOT added to `.github/workflows/build.yaml`.
+**Out of scope**: `firestream-healthd` is embedded in container images but not exposed in chart templates (no `9180` port in airflow chart Service). The k8s harness relies on native chart readiness probes + per-protocol probes (postgres `pg_isready`, redis `redis-cli ping`, etc.); wiring healthd into chart Services is a separate RFC. Not in `.github/workflows/build.yaml` — see "E2E as advisory pipeline phases" below for how it *is* reachable from the pipeline.
+
+### E2E as advisory pipeline phases (`--mode e2e`)
+
+Both harnesses above (the k8s one, and the docker one at `src/lib/rust/firestream/tests/e2e.rs` driven by `make test-e2e` / `make test-e2e-<stack>`) are ALSO declared as CI-profile phases. This is **purely additive**: every `make test-e2e*` target and every `FIRESTREAM_E2E*` env var keeps working byte-identically, and is still the right tool for incident reproduction.
+
+```bash
+make ci-e2e-dry-run     # print the chain; executes nothing
+make ci-e2e             # run it — HOURS, 10 k3d clusters, 8 compose stacks
+FIRESTREAM_E2E_STRICT=1 FIRESTREAM_E2E_K8S_STRICT=1 make ci-e2e   # unattended
+```
+
+**Shape.** `bin/nix/firestream/ci/profile.nix` declares 18 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×10 (the canonical 9 plus `pg-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
+
+**Why chained phases and not parallel tasks in one phase.** `firestream_ci::pipeline::Pipeline::run` fans a phase's tasks out with `join_all` and **no concurrency cap**. Both harnesses hold a process-wide mutex (`harness_lock()` / `e2e_lock()`) precisely because they create real k3d clusters and bind host ports; k3d name/port collisions are already engineered away (random cluster suffix, `127.0.0.1` API bind, `pick_ephemeral_port()`), so N concurrent runs would not *collide* — they would just be N k3s servers plus N full data stacks on one machine. So the serialisation is done at profile level: one task per phase, phases chained through `dependsOn`. Phases run strictly one at a time.
+
+**Two `dependsOn` edges per link, and the second is load-bearing.** Each link names its predecessor *and* `verify` directly. Skip is **not transitive** in `Pipeline::run`: a phase is skipped only when one of its **own** `depends_on` is a *required* phase that failed, and a skipped `PhaseOutcome` reports `ok() == true` (an `all()` over zero tasks). With a chain-only wiring, a red `verify` would skip only the head link and then run 17 remaining hours of e2e against a broken tree.
+
+**Failure semantics.** Advisory ⇒ a red chart yields exit **2** (`PartiallyPassed`), never 1, and does **not** stop the sweep — matching the cargo harness, where each chart is its own `#[test]`. A red `verify` (required) skips the whole chain and exits 1.
+
+**Gating.** `modes = [ "e2e" ]`. `make ci` (release) and `make ci-check` do not merely skip these phases, they never materialise them — confirm with `make ci-dry-run`, which lists them as `SKIPPED (modes=e2e)`. The chain is also Linux-gated in `profile.nix`, so the Darwin manifest keeps its "zero runnable phases" property.
+
+**Invariants are tested, not asserted:** `src/util/firestream-ci/tests/e2e_phase_chain.rs` (12 tests) proves advisory⇒exit 2, required⇒exit 1 + chain skipped, one-shell-task-per-phase, "no two shell phases are mutually independent in the DAG", and the direct-gate-edge rule — all from a *synthetic* profile fixture, so `src/util` still learns no Firestream phase names. Two of the twelve re-run the structural invariants against `$FIRESTREAM_CI_PROFILE` when it is set (the dev shell exports it), which is the anti-drift check against the real manifest.
 
 ### Docker-from-Docker Pattern
 Rather than Docker-in-Docker, the devcontainer binds to `/var/run/docker.sock`:
@@ -411,12 +433,102 @@ Key variables set by `bootstrap.sh`:
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/build.yaml`):
-- Triggers on push to `staging`, `dev`, or `dependabot/**` branches
-- Triggers on PRs to `main`
-- Runs `make test` followed by `make build`
-- 45-minute timeout
-- Cleans up space by removing unnecessary GitHub Actions tools
+Two GitHub Actions workflows, plus one helper script:
+
+| File | Trigger | Purpose |
+|---|---|---|
+| `.github/workflows/build.yaml` | PRs to `main`/`nightly`; pushes to `main`/`nightly`/`staging`/`dev`; `workflow_dispatch` | The merge gate. Cheap by design. |
+| `.github/workflows/nightly.yaml` | `schedule` (09:00 UTC) + `workflow_dispatch` | The expensive release pipeline (`make ci`). |
+| `.github/scripts/free-disk-space.sh` | called by both | Reclaims ~25 GB of preinstalled toolchains so a Nix store fits in a hosted runner's ~14 GB. |
+
+### `build.yaml` jobs
+
+| Job | Runner | Runs |
+|---|---|---|
+| `rust` | hosted | `make build`, then `cargo test --workspace --exclude firestream-api-server-web` |
+| `util` | hosted | `make test-strategy-parity`, `make test-registry-parity`, `make test-util` |
+| `ci-profile` | hosted | `nix build .#firestream-ci-profile .#firestream-ci`, then `make ci-dry-run` |
+| `ci-check` | `vars.FIRESTREAM_CI_RUNNER` (gated) | `nix develop --command make ci-check` — the real pipeline, check mode |
+| `gate` | hosted | Single required status; treats a skipped `ci-check` as *not-configured*, not green |
+
+Job timeout is 45 minutes (the number the old docs promised), except `ci-check`
+(120) and the nightly `release` job (360).
+
+**`cargo test --workspace` is not run verbatim.** `firestream-api-server-web`'s
+tests are `#[db_test]`s that fork a database per test and need a live Postgres
+plus applied migrations; the package is excluded until that service is stood up
+in CI. The e2e suites are `#[ignore]`d and so are already out; Phase 9 made them
+reachable as advisory phases under a separate `--mode e2e` (see "E2E as advisory
+pipeline phases" above), which no `build.yaml` job invokes.
+
+### Exit-code contract (`firestream_ci::pipeline::Verdict`)
+
+Both workflows encode the same tri-state, and getting it wrong defeats the
+design:
+
+| Exit | Meaning | CI behaviour |
+|---|---|---|
+| `0` | `Passed` | green |
+| `1` | `Failed` — a **Required** task failed | **fails the job** |
+| `2` | `PartiallyPassed` — every Required passed, ≥1 **Advisory** failed | `::warning::` + job summary, **does not fail** |
+
+Exit 2 is what lets slow or flaky work (`tidy`, `attest`, and the 18 `e2e-*`
+phases) live in the pipeline without blocking merges.
+
+**"Continuous but non-blocking" vs. "hosted runners can't do this".** Both are
+true and they resolve at the *runner*, not at the tier. Advisory tier is what
+makes an e2e sweep safe to run continuously — worst case exit 2, a `::warning::`.
+But a sweep that creates 10 k3d clusters cannot execute on a hosted runner at
+all, which is why `ci-check` and the nightly `release` job are already gated on
+`vars.FIRESTREAM_CI_RUNNER`. So Phase 9 ships the *mechanism* (a mode, a chain,
+an advisory tier, a proven exit-2 path) and deliberately ships **no workflow
+change**: `.github/` is Phase 8's, and adding an `e2e` job before a runner exists
+to run it would only produce a permanently-skipped job. Wiring it up is one job
+block — `runs-on: ${{ vars.FIRESTREAM_CI_RUNNER }}`, `nix develop --command make
+ci-e2e`, `FIRESTREAM_E2E{,_K8S}_STRICT=1`, the existing exit-2 handling verbatim
+— on a schedule slower than nightly.
+
+**Caveat encoded in the workflows:** `ci-linux`'s devshell-sentinel guard also
+returns `2`, *before* any phase runs. That is a misconfiguration, not an advisory
+failure, so both workflows grep the captured log for
+`must run inside the Nix devshell` and hard-fail on it.
+
+### Runner configuration
+
+The release-mode `build` phase (11 container images + 10 charts) does **not** fit
+on a GitHub-hosted runner — hours of wall clock, multi-GB outputs, ~14 GB disk
+and 7 GB RAM. Two repository variables control this:
+
+- `FIRESTREAM_CI_RUNNER` — runner label for `ci-check` and the nightly `release`
+  job. Unset ⇒ `ci-check` is skipped (and reported as such) and `nightly` runs a
+  visible *not configured* job instead of pretending.
+- `FIRESTREAM_CI_FREE_DISK=1` — run the disk-cleanup script on the nightly
+  runner. Only for ephemeral runners; it prunes the Docker image cache, which a
+  `STRATEGY=docker` warm cache depends on.
+
+### Preconditions
+
+1. **Nix only sees git-tracked files.** `nix build .#firestream-ci-profile` fails
+   with `Path 'nix/flake-modules/util.nix' ... is not tracked by Git` until
+   `src/util/`, `bin/nix/firestream/ci/`,
+   `nix/flake-modules/{util,ci-profile}.nix`, `bin/build/strategy*.{sh,json}`,
+   `bin/build/registry-*.{sh,json}` and `.github/` are `git add`ed.
+2. Nix jobs use `fetch-depth: 0` because the flake reads `inputs.self.rev`.
+3. `make ci` / `ci-check` must run inside `nix develop` — that is what supplies
+   `firestream-ci`, `nix-eval-jobs` and `FIRESTREAM_CI_PROFILE`.
+4. Store caching uses `nix-community/cache-nix-action` (GitHub's own cache, no
+   secret, 10 GB repo cap). A real binary cache (Cachix / attic / FlakeHub) is
+   the eventual answer for the release path.
+
+### Local equivalents
+
+```bash
+make ci-dry-run          # build-free: prints the phase DAG, fails on an empty profile
+make ci-check            # tidy + verify        (what the PR gate runs)
+make ci                  # tidy + verify + build + attest
+make ci STRATEGY=docker  # force the Docker builder (FIRESTREAM_BUILD_STRATEGY)
+make test-util           # src/util workspace; depends on both parity gates
+```
 
 ## Development Tips
 

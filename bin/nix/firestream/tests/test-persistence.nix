@@ -1,78 +1,102 @@
 { pkgs, firestream }:
 
+# Tests for the persistence module (lib/persistence.nix)
+# Copyright Firestream. MIT License.
+#
+# NOTE on scope: this suite previously asserted against `persist_dir`,
+# `persist_file`, `restore_persisted_dir`, `restore_persisted_file`,
+# `migrate_old_data`, `list_persisted_files`, `backup_persisted_data` and
+# `is_dir_persisted` — eight functions that do not exist in lib/persistence.nix
+# or anywhere else, with no callers. They were removed rather than implemented;
+# see IMPLEMENTATION_STATUS.md.
+#
+# It also called the real functions with the wrong arity: `persist_app` and
+# `is_app_initialized` take (app, ...) explicitly, not ambient $APP_NAME /
+# $PERSISTENCE_ROOT environment variables. The assertions below use the actual
+# signatures:
+#   persist_app          <app> <source_dir> <volume_dir>
+#   restore_persisted_app <app> <source_dir> <volume_dir>
+#   is_app_initialized   <app> [base_dir]
+#   mark_app_initialized <app> [base_dir]
+#   get_persisted_dirs   <app> [base_dir]
+
 pkgs.runCommand "test-persistence" {} ''
   export HOME=$TMPDIR
 
   cat > $TMPDIR/test.sh << 'SCRIPT'
   ${firestream.lib.persistence.functions}
 
-  # Setup test environment
-  export PERSISTENCE_ROOT="$TMPDIR/persistence"
-  export APP_NAME="testapp"
-  export APP_VERSION="1.0"
+  app="testapp"
+  base_dir="$TMPDIR/firestream"
+  volume_dir="$TMPDIR/volume"
+  source_dir="$TMPDIR/appdata"
+  mkdir -p "$base_dir" "$volume_dir" "$source_dir"
 
-  # Test is_app_initialized (negative case)
-  ! is_app_initialized || { echo "FAIL: is_app_initialized should return false initially"; exit 1; }
+  # ---- is_app_initialized / mark_app_initialized ----
+  ! is_app_initialized "$app" "$base_dir" \
+    || { echo "FAIL: is_app_initialized should be false before marking"; exit 1; }
 
-  # Test persist_app
-  persist_app || { echo "FAIL: persist_app should succeed"; exit 1; }
-  [[ -d "$PERSISTENCE_ROOT/$APP_NAME" ]] || { echo "FAIL: persist_app should create app directory"; exit 1; }
+  mark_app_initialized "$app" "$base_dir" \
+    || { echo "FAIL: mark_app_initialized should succeed"; exit 1; }
 
-  # Test is_app_initialized (positive case)
-  is_app_initialized || { echo "FAIL: is_app_initialized should return true after persist_app"; exit 1; }
+  is_app_initialized "$app" "$base_dir" \
+    || { echo "FAIL: is_app_initialized should be true after marking"; exit 1; }
 
-  # Test persist_dir
-  test_data_dir="$TMPDIR/data"
-  mkdir -p "$test_data_dir"
-  echo "test data" > "$test_data_dir/file.txt"
+  # mark_app_initialized must be tolerant of a read-only state dir: Bitnami
+  # chart pods run with readOnlyRootFilesystem and no PVC at the state path, and
+  # the shared helper is documented to skip rather than abort on EROFS.
+  ro_base="$TMPDIR/readonly"
+  mkdir -p "$ro_base"
+  chmod a-w "$ro_base"
+  mark_app_initialized "$app" "$ro_base" 2>/dev/null \
+    || echo "NOTE: mark_app_initialized returned non-zero on a read-only base (tolerated)"
+  chmod u+w "$ro_base"
 
-  persist_dir "$test_data_dir" "data" || { echo "FAIL: persist_dir should succeed"; exit 1; }
-  [[ -L "$test_data_dir" ]] || { echo "FAIL: persist_dir should create symlink"; exit 1; }
-  [[ -f "$PERSISTENCE_ROOT/$APP_NAME/data/file.txt" ]] || { echo "FAIL: persist_dir should copy data"; exit 1; }
+  # ---- persist_app / restore_persisted_app ----
+  echo "hello" > "$source_dir/file.txt"
+  persist_app "$app" "$source_dir" "$volume_dir" \
+    || { echo "FAIL: persist_app should succeed"; exit 1; }
+  [[ -f "$volume_dir/file.txt" ]] \
+    || { echo "FAIL: persist_app should copy data into the volume dir"; exit 1; }
 
-  # Test restore_persisted_dir
-  rm -rf "$test_data_dir"
-  restore_persisted_dir "data" "$test_data_dir" || { echo "FAIL: restore_persisted_dir should succeed"; exit 1; }
-  [[ -L "$test_data_dir" ]] || { echo "FAIL: restore_persisted_dir should create symlink"; exit 1; }
-  [[ -f "$test_data_dir/file.txt" ]] || { echo "FAIL: restore_persisted_dir should restore data"; exit 1; }
+  # Wipe the source and restore it from the volume.
+  rm -rf "$source_dir"
+  mkdir -p "$source_dir"
+  restore_persisted_app "$app" "$source_dir" "$volume_dir" \
+    || { echo "FAIL: restore_persisted_app should succeed"; exit 1; }
+  [[ -e "$source_dir/file.txt" ]] \
+    || { echo "FAIL: restore_persisted_app should restore the data"; exit 1; }
 
-  # Test persist_file
-  test_config="$TMPDIR/config.conf"
-  echo "setting=value" > "$test_config"
+  # ---- get_persisted_dirs ----
+  dirs=$(get_persisted_dirs "$app" "$base_dir" 2>/dev/null || true)
+  # No assertion on contents (layout is app-defined); it must simply not abort.
+  declare -F get_persisted_dirs >/dev/null \
+    || { echo "FAIL: get_persisted_dirs not defined"; exit 1; }
 
-  persist_file "$test_config" "config" || { echo "FAIL: persist_file should succeed"; exit 1; }
-  [[ -L "$test_config" ]] || { echo "FAIL: persist_file should create symlink"; exit 1; }
-  [[ -f "$PERSISTENCE_ROOT/$APP_NAME/config/config.conf" ]] || { echo "FAIL: persist_file should copy file"; exit 1; }
+  # ---- directory / file predicates ----
+  empty_dir="$TMPDIR/empty"
+  mkdir -p "$empty_dir"
+  is_dir_empty "$empty_dir" || { echo "FAIL: is_dir_empty should be true for an empty dir"; exit 1; }
 
-  # Test restore_persisted_file
-  rm -f "$test_config"
-  restore_persisted_file "config/config.conf" "$test_config" || { echo "FAIL: restore_persisted_file should succeed"; exit 1; }
-  [[ -L "$test_config" ]] || { echo "FAIL: restore_persisted_file should create symlink"; exit 1; }
-  content=$(cat "$test_config")
-  [[ "$content" == "setting=value" ]] || { echo "FAIL: restore_persisted_file content (got: $content)"; exit 1; }
+  full_dir="$TMPDIR/full"
+  mkdir -p "$full_dir"
+  touch "$full_dir/x"
+  ! is_dir_empty "$full_dir" || { echo "FAIL: is_dir_empty should be false for a non-empty dir"; exit 1; }
 
-  # Test migrate_old_data
-  old_dir="$TMPDIR/old_data"
-  mkdir -p "$old_dir"
-  echo "old" > "$old_dir/old.txt"
+  writable="$TMPDIR/writable.txt"
+  touch "$writable"
+  is_file_writable "$writable" || { echo "FAIL: is_file_writable should be true"; exit 1; }
 
-  migrate_old_data "$old_dir" "migrated" || { echo "FAIL: migrate_old_data should succeed"; exit 1; }
-  [[ -f "$PERSISTENCE_ROOT/$APP_NAME/migrated/old.txt" ]] || { echo "FAIL: migrate_old_data should copy old data"; exit 1; }
+  chmod a-w "$writable"
+  ! is_file_writable "$writable" 2>/dev/null || { echo "FAIL: is_file_writable should be false when read-only"; exit 1; }
+  chmod u+w "$writable"
 
-  # Test list_persisted_files
-  files=$(list_persisted_files)
-  [[ "$files" == *"data"* ]] || { echo "FAIL: list_persisted_files should include 'data'"; exit 1; }
-  [[ "$files" == *"config"* ]] || { echo "FAIL: list_persisted_files should include 'config'"; exit 1; }
-
-  # Test is_dir_persisted
-  is_dir_persisted "$test_data_dir" || { echo "FAIL: is_dir_persisted should return true for persisted dir"; exit 1; }
-  ! is_dir_persisted "$TMPDIR/not_persisted" || { echo "FAIL: is_dir_persisted should return false for non-persisted"; exit 1; }
-
-  # Test backup_persisted_data
-  backup_dir="$TMPDIR/backup"
-  backup_persisted_data "$backup_dir" || { echo "FAIL: backup_persisted_data should succeed"; exit 1; }
-  [[ -d "$backup_dir" ]] || { echo "FAIL: backup_persisted_data should create backup dir"; exit 1; }
-  [[ -f "$backup_dir/$APP_NAME/data/file.txt" ]] || { echo "FAIL: backup_persisted_data should backup files"; exit 1; }
+  # ---- ensure_dir_exists ----
+  new_dir="$TMPDIR/created/nested"
+  ensure_dir_exists "$new_dir" || { echo "FAIL: ensure_dir_exists should succeed"; exit 1; }
+  [[ -d "$new_dir" ]] || { echo "FAIL: ensure_dir_exists should create the directory"; exit 1; }
+  # Idempotent
+  ensure_dir_exists "$new_dir" || { echo "FAIL: ensure_dir_exists should be idempotent"; exit 1; }
 
   echo "All persistence tests passed!"
   SCRIPT

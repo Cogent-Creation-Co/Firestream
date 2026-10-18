@@ -586,7 +586,15 @@ in firestream.mkPythonContainerModule {
 
       celery-worker)
         info "Starting Celery worker..."
-        exec celery --app=superset.tasks.celery_app:app worker -O fair -l INFO
+        # `--concurrency` is REQUIRED, not a tuning nicety. Celery defaults to
+        # os.cpu_count(), which inside a container reports the HOST's core count
+        # and ignores the cgroup CPU limit. Each prefork child loads the whole
+        # Superset app, so on a 24-core host the worker forks 24 children and is
+        # OOMKilled (exit 137) against the chart's 3Gi limit — observed as an
+        # endless CrashLoopBackOff that never lets the release go Ready.
+        # Overridable per-deployment via the chart's `worker.extraEnvVars`.
+        exec celery --app=superset.tasks.celery_app:app worker -O fair -l INFO \
+          --concurrency="''${SUPERSET_CELERY_CONCURRENCY:-4}"
         ;;
 
       celery-beat)

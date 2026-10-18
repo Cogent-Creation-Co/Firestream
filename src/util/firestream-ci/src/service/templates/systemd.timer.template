@@ -1,0 +1,9 @@
+[Unit]
+Description={DESCRIPTION} timer
+
+[Timer]
+{TIMER_SCHEDULE}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

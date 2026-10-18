@@ -203,8 +203,8 @@ fn drop_namespace(kubeconfig: &Path, ns: &str, budget: Duration) -> Result<(), (
 /// Resolve the bundle directory, materialising it via `nix build` if no
 /// path on the resolution list exists on disk. The resolution order is
 /// already encoded in `env_charts_dir()`; this function adds the
-/// nix-build fallback because the dev-shell-emitted `.firestream/charts`
-/// may not be present in a fresh checkout.
+/// nix-build fallback because the dev shell's `FIRESTREAM_CHARTS_DIR` is
+/// only exported inside `nix develop`.
 pub(crate) fn resolve_charts_dir(chart: &str) -> std::path::PathBuf {
     let primary = env_charts_dir();
     if primary.join("index.json").exists() {
@@ -315,8 +315,18 @@ pub fn run_one(chart: &str) {
 
     // ---- 5. resolve bundle + deploy + arm release guard ----
     let charts_dir = resolve_charts_dir(chart);
-    let release = deploy::deploy_chart(&handle, &charts_dir, chart)
-        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] deploy failed: {:#}", chart, e));
+    // On failure, dump cluster state BEFORE unwinding — `_cluster_guard` is
+    // already armed, so the panic destroys the whole cluster and with it every
+    // artefact that could explain what went wrong. `--atomic` is off for e2e
+    // (see deploy.rs) specifically so the workloads are still around here.
+    //
+    // The namespace is not known until deploy returns Ok, so on the failure
+    // path fall back to the chart name — which is what every chart manifest in
+    // the bundle uses as its release namespace.
+    let release = deploy::deploy_chart(&handle, &charts_dir, chart).unwrap_or_else(|e| {
+        crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, chart);
+        panic!("[e2e-k8s:{}] deploy failed: {:#}", chart, e)
+    });
     eprintln!(
         "[e2e-k8s:{}] deployed: release={} namespace={}",
         chart, release.release, release.namespace
@@ -335,7 +345,13 @@ pub fn run_one(chart: &str) {
         &release.namespace,
         deadline,
     )
-    .unwrap_or_else(|e| panic!("[e2e-k8s:{}] wait_pods_ready: {:#}", chart, e));
+    .unwrap_or_else(|e| {
+        // Same reasoning as the deploy path: capture before the guards unwind.
+        // This is the arm that would have shown superset's OOMKilled worker
+        // instead of an opaque `timed out waiting for the condition`.
+        crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, &release.namespace);
+        panic!("[e2e-k8s:{}] wait_pods_ready: {:#}", chart, e)
+    });
     eprintln!("[e2e-k8s:{}] pods Ready", chart);
 
     // ---- 7. probe chain ----

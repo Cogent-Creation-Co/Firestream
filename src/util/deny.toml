@@ -1,0 +1,28 @@
+# cargo-deny config for the src/util virtual workspace.
+#
+# cargo-deny does not natively express "crate X must not appear in the dep
+# tree of crate Y", so the leaf-vs-non-leaf rule is enforced via
+# `src/util/firestream-ci/tests/no_leaf_cycles.rs` (which scans `cargo metadata`).
+# This file is reserved for future ban / advisory / license rules across the
+# workspace; left intentionally minimal until those land.
+
+[bans]
+multiple-versions = "allow"
+
+[advisories]
+yanked = "warn"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+    "0BSD",
+]

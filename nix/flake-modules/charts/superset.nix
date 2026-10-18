@@ -102,10 +102,45 @@
         config.superset.postgresql.postgresqlSharedPreloadLibraries = "";
       };
 
+      # `loadExamples` is only half-wired upstream, and the missing half OOM-kills
+      # the release.
+      #
+      # The chart threads `.Values.loadExamples` into the init Job only
+      # (templates/init/init-job.yaml sets SUPERSET_LOAD_EXAMPLES there). The
+      # web / worker / beat / flower pods never receive it. Meanwhile the
+      # firestream-superset container BAKES `SUPERSET_LOAD_EXAMPLES = "true"`
+      # as its own default (src/containers/firestream/superset/5/options.nix:99),
+      # and env-defaults semantics are `export VAR="''${VAR:-default}"` — so with
+      # nothing injected, the container default wins and EVERY pod tries to load
+      # the example dashboards at startup.
+      #
+      # Observed on k3d: the web pod reaches
+      #   `superset.cli.examples:Loading [World Bank's Health Nutrition and
+      #    Population Stats]`
+      # then exits 137 OOMKilled against the chart's `web.resourcesPreset =
+      # "small"` (768Mi limit), CrashLoopBackOffs, never goes Ready, and helm
+      # burns its 10m timeout before `--atomic` rolls the release back — leaving
+      # only `context deadline exceeded` to debug from.
+      #
+      # Injecting the var explicitly makes the pods agree with the chart's own
+      # `loadExamples` setting instead of silently disagreeing with it. This is
+      # the standard Bitnami-compat `extraEnvVars` seam (see CLAUDE.md,
+      # "Path remap"), applied per-component because this chart is hub-and-spoke.
+      loadExamplesEnv = [
+        { name = "SUPERSET_LOAD_EXAMPLES"; value = "false"; }
+      ];
+
+      loadExamplesModule = { ... }: {
+        config.superset.web.extraEnvVars = loadExamplesEnv;
+        config.superset.worker.extraEnvVars = loadExamplesEnv;
+        config.superset.beat.extraEnvVars = loadExamplesEnv;
+        config.superset.flower.extraEnvVars = loadExamplesEnv;
+      };
+
       c = evalChart {
         name = "superset";
         inherit chartSrc subcharts;
-        modules = [ optionsPath imageInjectionModule ];
+        modules = [ optionsPath imageInjectionModule loadExamplesModule ];
       };
     in
     {

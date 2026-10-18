@@ -1,0 +1,195 @@
+# Firestream CI — release pipeline (nightly / on demand)
+#
+# ── Why this is a separate file from build.yaml ──────────────────────────────
+# `build.yaml` is the merge gate and must stay cheap enough to run on every
+# push. This is the expensive half: `firestream-ci ci-linux --mode
+# release`, which runs all four profile phases —
+#
+#   tidy   (advisory)  sweep + a nix-gc that REFUSES to reap a host store
+#   verify (required)  the 13 flake checks
+#   build  (required)  11 container images + 10 charts + the chart bundle,
+#                      as ONE nix-fast-build over 22 attrs
+#   attest (advisory)  the fleet SBOM, materialised into <rundir>/artifacts
+#
+# ── Honest capacity statement ────────────────────────────────────────────────
+# The `build` phase does not fit on a GitHub-hosted runner. A cold full build is
+# measured in HOURS, the 22 attrs include multi-GB container images, and a
+# hosted runner offers ~14 GB of disk and 7 GB of RAM against a profile whose
+# own risk register says "parallel FastBuild on 4 CPU / 8 GB will OOM".
+#
+# So this workflow does not pretend. It runs only when the repository variable
+# FIRESTREAM_CI_RUNNER names a runner that can actually do the work; otherwise
+# the `not-configured` job explains that and succeeds. Nothing here ever gates a
+# pull request.
+#
+# ── PRECONDITION ─────────────────────────────────────────────────────────────
+# Same as build.yaml: Nix sees only git-tracked files, and the entire phase 1-7
+# surface (src/util, bin/nix/firestream/ci, nix/flake-modules/{util,ci-profile}.nix,
+# bin/build/{strategy,registry}-*, .github) must be `git add`ed first.
+
+name: nightly
+
+on:
+  schedule:
+    # 09:00 UTC — after the US-Pacific working day, before the European one.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "firestream-ci mode"
+        type: choice
+        options: [release, check]
+        default: release
+      strategy:
+        description: "FIRESTREAM_BUILD_STRATEGY (auto | native | docker)"
+        type: choice
+        options: [auto, native, docker]
+        default: auto
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs only where the release pipeline can finish. `runs-on` takes the label
+  # from a repository variable so adopting a self-hosted runner is a settings
+  # change, not a workflow edit.
+  release:
+    name: firestream-ci ci-linux --mode ${{ inputs.mode || 'release' }}
+    if: vars.FIRESTREAM_CI_RUNNER != ''
+    runs-on: ${{ vars.FIRESTREAM_CI_RUNNER }}
+    # 6 hours: the documented cold-build order of magnitude. On a warm store
+    # this finishes in a fraction of it; the ceiling exists so a pathological
+    # run is killed rather than occupying a runner indefinitely.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Only meaningful on an ephemeral hosted-style runner. On a persistent
+      # self-hosted runner the whole point is a WARM /nix/store, and wiping the
+      # docker image cache would also destroy the STRATEGY=docker warm cache
+      # volume lineage — so this is opt-in via a second repository variable.
+      - name: free disk space
+        if: vars.FIRESTREAM_CI_FREE_DISK == '1'
+        run: bash .github/scripts/free-disk-space.sh
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            max-jobs = auto
+            cores = 0
+
+      # NOT `make ci`. GNU make collapses every failed recipe to exit 2, which
+      # would alias Failed (1) onto PartiallyPassed (2) and turn a REQUIRED
+      # failure into a non-blocking warning. See build.yaml for the same fix.
+      - name: firestream-ci ci-linux (tri-state)
+        id: ci
+        env:
+          # `auto` on a Linux host with nix on PATH resolves to a NATIVE build
+          # against the host /nix/store; `docker` is a total rollback with no
+          # code change (bin/build/strategy.sh reads this before any probing).
+          # firestream-ci reads FIRESTREAM_BUILD_STRATEGY directly, before any
+          # probing — the same variable the makefile's STRATEGY knob sets.
+          FIRESTREAM_BUILD_STRATEGY: ${{ inputs.strategy || 'auto' }}
+          # See build.yaml for why the sentinel is set explicitly.
+          FIRESTREAM_DEVSHELL: "1"
+          CI_RUNNER: host-linux
+          GIT_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -o pipefail
+          mode='${{ inputs.mode || 'release' }}'
+          rc=0
+          nix develop --command firestream-ci ci-linux --mode "$mode" 2>&1 | tee ci.log || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+          # ── Exit-code contract (firestream_ci::pipeline::Verdict) ──────────
+          #   0 Passed · 1 Failed (a Required task failed) · 2 PartiallyPassed
+          # Exit 2 means every Required task passed and at least one ADVISORY
+          # task failed — here that is `tidy` and `attest` (and, from Phase 9,
+          # the e2e suites). It is reported loudly and does not fail the run.
+          case "$rc" in
+            0)
+              echo "verdict=passed" >> "$GITHUB_OUTPUT"
+              ;;
+            2)
+              # The devshell-sentinel guard also returns 2, before any phase
+              # runs. That is a misconfiguration, not an advisory failure.
+              if grep -q 'must run inside the Nix devshell' ci.log; then
+                echo "verdict=misconfigured" >> "$GITHUB_OUTPUT"
+                echo "::error::firestream-ci never started: devshell guard tripped"
+                exit 1
+              fi
+              echo "verdict=partial" >> "$GITHUB_OUTPUT"
+              echo "::warning::Pipeline PARTIAL (exit 2): all Required phases passed; an Advisory phase failed."
+              ;;
+            *)
+              echo "verdict=failed" >> "$GITHUB_OUTPUT"
+              echo "::error::Pipeline FAILED (exit $rc): a Required phase failed."
+              exit "$rc"
+              ;;
+          esac
+
+      - name: summarise the run
+        if: always()
+        run: |
+          # shellcheck disable=SC2012  # rundir names are date/sha/counter, never exotic
+          rundir="$(ls -d _build/*/*/* 2>/dev/null | tail -1 || true)"
+          {
+            echo "## firestream-ci — verdict: ${{ steps.ci.outputs.verdict || 'unknown' }} (exit ${{ steps.ci.outputs.rc || '?' }})"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$rundir" ]; then
+            echo "rundir=$rundir" >> "$GITHUB_ENV"
+            [ -f "$rundir/profiles/ci-summary.md" ] && cat "$rundir/profiles/ci-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '_No run directory was produced._' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Spans, per-attr logs, the schema-v2 manifest and the SBOM. Deliberately
+      # NOT the exported image tarballs under artifacts/images — those are
+      # multi-GB and belong in a registry, not in an Actions artifact.
+      - uses: actions/upload-artifact@v4
+        if: always() && env.rundir != ''
+        with:
+          name: ci-rundir-${{ github.run_id }}
+          path: |
+            ${{ env.rundir }}/manifest.json
+            ${{ env.rundir }}/profiles/**
+            ${{ env.rundir }}/logs/**
+            ${{ env.rundir }}/artifacts/sbom/**
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # Without this the workflow would silently do nothing on a repo that has not
+  # configured a runner. A visible, passing "not configured" beats an invisible
+  # skip.
+  not-configured:
+    name: release pipeline not configured
+    if: vars.FIRESTREAM_CI_RUNNER == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Release pipeline not configured
+
+          The repository variable `FIRESTREAM_CI_RUNNER` is unset, so the
+          `release` job did not run.
+
+          The release-mode `build` phase (11 container images + 10 charts) does
+          not fit on a GitHub-hosted runner: hours of wall clock, multi-GB
+          outputs, ~14 GB of disk and 7 GB of RAM available.
+
+          To enable it, set `FIRESTREAM_CI_RUNNER` to a self-hosted runner label
+          with a warm `/nix/store` and generous disk. Optionally set
+          `FIRESTREAM_CI_FREE_DISK=1` if that runner is ephemeral.
+          MD
+          echo "not configured; see the job summary"

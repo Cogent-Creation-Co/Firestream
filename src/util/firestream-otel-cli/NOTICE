@@ -1,0 +1,45 @@
+firestream-otel-cli
+Copyright 2026 Cogent Creation Co.
+
+This product includes software developed at Equinix, Inc.
+
+--------------------------------------------------------------------------------
+Attribution (Apache License, Version 2.0, Section 4(b) and 4(d))
+
+This crate is a Rust re-implementation ("port") of:
+
+    otel-cli
+    https://github.com/equinix-labs/otel-cli
+    Copyright Equinix, Inc. and the otel-cli contributors
+    Licensed under the Apache License, Version 2.0
+
+The upstream project is written in Go. A copy of the Apache License, Version
+2.0 is distributed with this crate as `LICENSE`.
+
+--------------------------------------------------------------------------------
+Statement of changes (Apache License, Version 2.0, Section 4(b))
+
+This is a derivative work. It carries prominent notices stating that the files
+have been changed, as follows. The complete, itemised statement of changes —
+including the reasons for the rewrite, the extensions made over upstream, and
+the known parity gaps — is maintained in `FORK.md` in this directory, which
+forms part of this NOTICE by reference.
+
+Summary of changes:
+
+  1. The entire implementation was rewritten from Go into Rust. No upstream Go
+     source is redistributed by this crate.
+  2. Two OTLP transports were ADDED that the Go upstream does not provide:
+     `http/json` (OTLP over HTTP with an `application/json` body) and
+     `json+file` (spans written directly to a directory tree, with no
+     collector process in the loop).
+  3. The functionality is exposed as a Rust *library* (`otel_cli`) in addition
+     to the `otel-cli` binary, so that sibling crates link it rather than
+     spawning it as a subprocess.
+  4. Three upstream capabilities are not yet implemented: TLS client/CA
+     certificate-file loading, `span background` on Windows, and the full
+     detail panes of the upstream TUI. See `FORK.md`.
+
+The upstream command surface, flag names, and environment-variable names are
+retained deliberately so that scripts written against the Go original continue
+to work.

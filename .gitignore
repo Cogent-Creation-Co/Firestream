@@ -16,6 +16,7 @@
 
 ## Development Logs
 logs/**
+*.log
 
 # Temporary files
 **/tmp/**
@@ -44,8 +45,14 @@ _WIP/**
 # Rendered Deployment files
 src/deploy/rendered/**
 **/.pulumi/**
-_build/**
 .env
+
+# firestream-ci run dirs + image/manifest/sbom output. Unanchored on purpose:
+# `_build/**` contains a slash, so git pinned it to the repo root and a stray
+# `src/util/_build/` (from `cd src/util && cargo run -p firestream-ci ...`)
+# slipped through. There should only ever be ONE `_build/`, at the repo root
+# (rundir::default_build_root enforces that) — this catches it anywhere.
+_build/
 
 # Nix build outputs
 result
@@ -55,6 +62,11 @@ result-*
 
 # Docker-based container build output (apps.<name>-image / firestream-build-image)
 .firestream-build/
+
+# Per-checkout runtime state: the TUI's log (src/lib/rust/firestream/src/main.rs)
+# and any nix out-links dropped here. Never tracked — a /nix/store symlink is
+# dangling on every other machine and re-diffs on every rebuild.
+/.firestream/
 
 # Nix/direnv caches
 .direnv/

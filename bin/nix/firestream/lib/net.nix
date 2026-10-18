@@ -16,7 +16,10 @@ let
     #########################
     dns_lookup() {
         local host="''${1:?hostname is missing}"
-        ${pkgs.glibc.bin}/bin/getent ahosts "$host" | ${pkgs.gawk}/bin/awk 'NR==1 {print $1}'
+        # `getent` is its own nixpkgs package — glibc.bin ships getconf but NOT
+        # getent, so ${"$"}{pkgs.glibc.bin}/bin/getent was a path that never existed
+        # and every DNS lookup failed with "No such file or directory".
+        ${pkgs.getent}/bin/getent ahosts "$host" | ${pkgs.gawk}/bin/awk 'NR==1 {print $1}'
     }
 
     ########################
@@ -89,8 +92,22 @@ let
     #########################
     get_machine_ip() {
         local hostname
-        hostname=$(${pkgs.coreutils}/bin/hostname)
-        dns_lookup "$hostname"
+        # NOT `coreutils/bin/hostname` — coreutils does not ship `hostname`
+        # (it has `hostid`), so the old path was a guaranteed
+        # "No such file or directory" for every caller. `uname -n` is the
+        # coreutils-provided way to get the nodename.
+        hostname=$(${pkgs.coreutils}/bin/uname -n)
+        local ip
+        ip=$(dns_lookup "$hostname")
+        if [[ -z "$ip" ]]; then
+            # An unresolvable own-hostname is normal in a build sandbox and on
+            # hosts with no DNS entry for themselves. Fall back to loopback
+            # rather than returning empty, so callers always get a usable
+            # address instead of silently interpolating "".
+            warn "get_machine_ip: could not resolve ''${hostname}, falling back to 127.0.0.1"
+            ip="127.0.0.1"
+        fi
+        echo "$ip"
     }
 
     ########################
@@ -109,8 +126,16 @@ let
 
     ########################
     # Parse URI into components
+    #
+    # Two equivalent call shapes are accepted:
+    #   parse_uri "$uri" --host      (flag form, Firestream-native)
+    #   parse_uri "$uri" host        (positional form, matches upstream Bitnami
+    #                                 libnet.sh so vendored scripts port over
+    #                                 unchanged)
+    #
     # Arguments:
     #   $1 - URI string
+    #   $2 - component name, when using the positional form
     # Flags:
     #   --scheme - Extract scheme
     #   --authority - Extract authority
@@ -159,7 +184,21 @@ let
                     return 1
                     ;;
                 *)
-                    uri="$1"
+                    if [[ -z "$uri" ]]; then
+                        uri="$1"
+                    else
+                        # Positional component (Bitnami form): the second bare
+                        # argument names the component to extract.
+                        case "$1" in
+                            scheme|authority|userinfo|host|port|path|query|fragment|all)
+                                component="$1"
+                                ;;
+                            *)
+                                stderr_print "unknown URI component $1"
+                                return 1
+                                ;;
+                        esac
+                    fi
                     ;;
             esac
             shift

@@ -1,0 +1,5 @@
+target/
+_build/
+.git/
+*.log
+tests/*.sh

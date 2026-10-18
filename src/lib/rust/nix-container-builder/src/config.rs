@@ -40,14 +40,38 @@ pub struct BuildConfig {
     pub package_registry: HashMap<String, String>,
 }
 
-/// Create the default package registry matching bin/build/_common.sh CONTAINER_REGISTRY.
+/// Create the default package registry matching `bin/build/registry-cases.json`.
+///
+/// # This is a MIRROR, not an authority
+///
+/// The authority is `bin/build/registry-cases.json` (`entries`), which
+/// `bin/build/test-registry-parity.sh` already gates against
+/// `bin/build/_common.sh`'s `CONTAINER_REGISTRY` and, via
+/// `bin/nix/firestream/ci/profile.nix` -> `ci.containerRegistry`, against
+/// `firestream_ci::profile::Profile::resolve_package_name`.
+///
+/// This copy exists because `nix-container-builder` is a **root workspace**
+/// member and `firestream-ci` lives in the deliberately isolated `src/util`
+/// workspace (edition 2024, own lockfile). Taking a cargo dependency on it to
+/// read one table would drag ~15 duplicate transitive majors into the root
+/// lock. Instead the drift is gated by `tests/registry_parity.rs`, which
+/// `include_str!`s the same JSON file and asserts this table equals `entries`
+/// key-for-key in both directions.
+///
+/// Keys here use the bare container name for "the family default" where the
+/// bash array uses a trailing colon (`airflow` <-> `airflow:`); the parity test
+/// performs that translation explicitly.
+///
+/// **Do not hand-edit this list.** Edit `bin/build/registry-cases.json` and let
+/// the parity test tell you what to change here.
 fn default_package_registry() -> HashMap<String, String> {
     let entries = [
         // PostgreSQL
         ("postgresql", "postgresql-17"),
         ("postgresql:16", "postgresql-16"),
         ("postgresql:17", "postgresql-17"),
-        // Redis
+        // Redis — THE LANDMINE: `.#redis` is redis-8 in the flake, but a bare
+        // `redis` on the build path is redis-7. See registry-cases.json.
         ("redis", "redis-7"),
         ("redis:7", "redis-7"),
         ("redis:8", "redis-8"),
@@ -55,12 +79,25 @@ fn default_package_registry() -> HashMap<String, String> {
         ("superset", "superset-5"),
         ("superset:4", "superset-4"),
         ("superset:5", "superset-5"),
-        // Single-version containers
-        ("airflow", "airflow"),
-        ("kafka", "kafka"),
-        ("spark", "spark"),
-        ("jupyterhub", "jupyterhub"),
+        // Airflow
+        ("airflow", "airflow-3"),
+        ("airflow:3", "airflow-3"),
+        // Kafka
+        ("kafka", "kafka-4"),
+        ("kafka:4", "kafka-4"),
+        // Spark
+        ("spark", "spark-4"),
+        ("spark:4", "spark-4"),
+        // JupyterHub
+        ("jupyterhub", "jupyterhub-5"),
+        ("jupyterhub:5", "jupyterhub-5"),
+        // Odoo — bare `odoo` resolves to the UNSUFFIXED package, unlike every
+        // other family. Preserved bug-for-bug from CONTAINER_REGISTRY.
         ("odoo", "odoo"),
+        ("odoo:15", "odoo-15"),
+        ("odoo:16", "odoo-16"),
+        ("odoo:17", "odoo-17"),
+        ("odoo:18", "odoo-18"),
     ];
     entries
         .iter()
@@ -120,7 +157,10 @@ impl BuildConfig {
     /// let config = BuildConfig::default();
     /// assert_eq!(config.resolve_package_name("postgresql", Some("17")), Some("postgresql-17".to_string()));
     /// assert_eq!(config.resolve_package_name("postgresql", None), Some("postgresql-17".to_string()));
-    /// assert_eq!(config.resolve_package_name("airflow", None), Some("airflow".to_string()));
+    /// assert_eq!(config.resolve_package_name("airflow", None), Some("airflow-3".to_string()));
+    /// // An unknown VERSION falls back to the family default; it is not an error.
+    /// assert_eq!(config.resolve_package_name("redis", Some("9")), Some("redis-7".to_string()));
+    /// // An unknown CONTAINER is None (bash logs and returns 1).
     /// assert_eq!(config.resolve_package_name("unknown", None), None);
     /// ```
     pub fn resolve_package_name(&self, container: &str, version: Option<&str>) -> Option<String> {
@@ -280,12 +320,23 @@ mod tests {
         assert_eq!(config.resolve_package_name("redis", None), Some("redis-7".to_string()));
         assert_eq!(config.resolve_package_name("superset", None), Some("superset-5".to_string()));
 
-        // Single-version containers
-        assert_eq!(config.resolve_package_name("airflow", None), Some("airflow".to_string()));
-        assert_eq!(config.resolve_package_name("kafka", None), Some("kafka".to_string()));
-        assert_eq!(config.resolve_package_name("spark", None), Some("spark".to_string()));
-        assert_eq!(config.resolve_package_name("jupyterhub", None), Some("jupyterhub".to_string()));
+        // Single-version families: the bare name resolves to the VERSIONED
+        // package for every family except odoo. (This block asserted the
+        // unsuffixed name for all five until Phase 10; that was drift from
+        // bin/build/_common.sh, and `.#airflow`/`.#kafka` are separate flake
+        // aliases, so the drift silently built a different attribute.)
+        assert_eq!(config.resolve_package_name("airflow", None), Some("airflow-3".to_string()));
+        assert_eq!(config.resolve_package_name("airflow", Some("3")), Some("airflow-3".to_string()));
+        assert_eq!(config.resolve_package_name("kafka", None), Some("kafka-4".to_string()));
+        assert_eq!(config.resolve_package_name("kafka", Some("4")), Some("kafka-4".to_string()));
+        assert_eq!(config.resolve_package_name("spark", None), Some("spark-4".to_string()));
+        assert_eq!(config.resolve_package_name("spark", Some("4")), Some("spark-4".to_string()));
+        assert_eq!(config.resolve_package_name("jupyterhub", None), Some("jupyterhub-5".to_string()));
+        assert_eq!(config.resolve_package_name("jupyterhub", Some("5")), Some("jupyterhub-5".to_string()));
+        // odoo is the exception: bare `odoo` is the UNSUFFIXED package.
         assert_eq!(config.resolve_package_name("odoo", None), Some("odoo".to_string()));
+        assert_eq!(config.resolve_package_name("odoo", Some("15")), Some("odoo-15".to_string()));
+        assert_eq!(config.resolve_package_name("odoo", Some("18")), Some("odoo-18".to_string()));
 
         // Unknown container
         assert_eq!(config.resolve_package_name("unknown", None), None);

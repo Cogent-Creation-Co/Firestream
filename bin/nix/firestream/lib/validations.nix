@@ -13,8 +13,16 @@ let
     # Returns:
     #   Boolean
     #########################
+    # NOTE on ''${1-} rather than ''${1:?...}: this is a PREDICATE. `:?` fires on
+    # an empty string as well as a missing one and, in a non-interactive shell,
+    # it terminates the whole script instead of returning non-zero — so
+    # `is_int ""` killed its caller rather than answering "no". Worse, the
+    # diagnostic goes to stderr, so a caller that redirects stderr (the usual
+    # shape for an expected-false check) saw a silent abort with no output.
+    # A predicate must always be able to answer; only genuinely-required
+    # arguments keep `:?`.
     is_int() {
-        local -r int="''${1:?missing value}"
+        local -r int="''${1-}"
         if [[ "$int" =~ ^-?[0-9]+$ ]]; then
             true
         else
@@ -29,8 +37,9 @@ let
     # Returns:
     #   Boolean
     #########################
+    # Predicate — see the note on `is_int` for why this is ''${1-} and not ''${1:?}.
     is_positive_int() {
-        local -r int="''${1:?missing value}"
+        local -r int="''${1-}"
         if is_int "$int" && (( "''${int}" >= 0 )); then
             true
         else
@@ -178,6 +187,12 @@ let
             elif [[ "$value" -lt 0 ]]; then
                 ${pkgs.coreutils}/bin/echo "negative value provided"
                 return 2
+            elif [[ "$value" -eq 0 ]]; then
+                # Port 0 is "pick any free port" to bind(2), never a valid
+                # service port to validate or connect to. Kept as its own
+                # branch so the message is accurate — it is not "negative".
+                ${pkgs.coreutils}/bin/echo "port 0 is not a valid service port"
+                return 2
             elif [[ "$value" -gt 65535 ]]; then
                 ${pkgs.coreutils}/bin/echo "requested port is greater than 65535"
                 return 2
@@ -196,7 +211,7 @@ let
     #   Boolean
     #########################
     validate_ipv4() {
-        local ip="''${1:?ip is missing}"
+        local ip="''${1-}"
         local stat=1
 
         if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -216,7 +231,7 @@ let
     #   Boolean
     #########################
     validate_ipv6() {
-        local ip="''${1:?ip is missing}"
+        local ip="''${1-}"
         local stat=1
         local full_address_regex='^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$'
         local short_address_regex='^((([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}){0,6}::(([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}){0,6})$'
@@ -234,16 +249,37 @@ let
     # Returns:
     #   Boolean
     #########################
+    # Two defects fixed here, both of which made this function return success
+    # for essentially any input:
+    #   1. `$2` (the required IP version) was parsed by nobody — `validate_ip
+    #      "192.168.1.1" 6` happily accepted an IPv4 address.
+    #   2. `stat=$(validate_ipv6 "$ip")` captured validate_ipv6's *stdout*, not
+    #      its exit status. validate_ipv6 prints nothing, so `stat` became the
+    #      empty string and `return $stat` degenerated to `return`, i.e. the
+    #      status of the last command — 0. The else-branch could never fail.
+    #
+    # Arguments:
+    #   $1 - IP to validate
+    #   $2 - required version: 4, 6, or empty/any for either
     validate_ip() {
-        local ip="''${1:?ip is missing}"
-        local stat=1
+        local ip="''${1-}"
+        local version="''${2-}"
 
-        if validate_ipv4 "$ip"; then
-            stat=0
-        else
-            stat=$(validate_ipv6 "$ip")
-        fi
-        return $stat
+        case "$version" in
+            4)
+                validate_ipv4 "$ip"
+                ;;
+            6)
+                validate_ipv6 "$ip"
+                ;;
+            ""|any)
+                validate_ipv4 "$ip" || validate_ipv6 "$ip"
+                ;;
+            *)
+                stderr_print "validate_ip: unknown IP version ''${version} (expected 4, 6 or empty)"
+                return 1
+                ;;
+        esac
     }
 
     ########################

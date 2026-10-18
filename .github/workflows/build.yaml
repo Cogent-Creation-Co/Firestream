@@ -1,0 +1,428 @@
+# Firestream CI — pull-request / push gate
+#
+# ── What this file is ────────────────────────────────────────────────────────
+# Until this commit `CLAUDE.md` described a `.github/workflows/build.yaml` that
+# did not exist. This is the real one. It is deliberately NOT the workflow that
+# file used to describe:
+#
+#   old text                     | why it is not honoured verbatim
+#   -----------------------------|-------------------------------------------
+#   "runs `make test`"           | `make test` is `cargo test --workspace` on the
+#                                | ROOT workspace, which does not cover
+#                                | `src/util` (its own Cargo workspace) and whose
+#                                | `firestream-api-server-web` integration tests
+#                                | require a live Postgres. See the `rust` job.
+#   "then `make build`"          | honoured — `cargo build --workspace`.
+#   "45-minute timeout"          | honoured, per job.
+#   "cleans up GH Actions tools" | honoured — the `free-disk-space` step, which is
+#                                | what makes a Nix store fit in ~14 GB.
+#
+# ── Topology ─────────────────────────────────────────────────────────────────
+#   rust        (hosted, required)  root Cargo workspace: build + test
+#   util        (hosted, required)  src/util workspace + both parity gates
+#   ci-profile  (hosted, required)  nix: build the CI profile, `make ci-dry-run`
+#   ci-check    (gated,  required)  the REAL pipeline: `make ci-check`
+#   gate        (hosted, required)  single required status for branch protection
+#
+# `ci-check` runs the check-mode pipeline (tidy + verify). The release-mode
+# `build` phase — 11 container images + 10 charts — is NOT here; it lives in
+# `nightly.yaml`. A cold full build is measured in hours and cannot complete on
+# a GitHub-hosted runner.
+#
+# ── PRECONDITION (read this before the first run) ────────────────────────────
+# Nix only sees GIT-TRACKED files. Everything phases 1-7 produced is currently
+# untracked, and `nix build .#firestream-ci-profile` fails outright with
+# "Path 'nix/flake-modules/util.nix' ... is not tracked by Git" until it is
+# added. The `ci-profile` and `ci-check` jobs CANNOT pass before:
+#
+#   git add src/util bin/nix/firestream/ci nix/flake-modules/util.nix \
+#           nix/flake-modules/ci-profile.nix bin/build/strategy.sh \
+#           bin/build/strategy-cases.json bin/build/test-strategy-parity.sh \
+#           bin/build/registry-cases.json bin/build/test-registry-parity.sh \
+#           .github
+#
+# This is also why every nix job uses `fetch-depth: 0`: the flake reads
+# `inputs.self.rev`, and a shallow checkout leaves it unresolvable.
+
+name: build
+
+on:
+  pull_request:
+    branches: [main, nightly]
+  push:
+    branches: [main, nightly, staging, dev]
+  workflow_dispatch:
+    inputs:
+      run_ci_check:
+        description: "Force the ci-check job even without FIRESTREAM_CI_RUNNER"
+        type: boolean
+        default: false
+
+# One in-flight run per ref. A superseded PR push cancels the previous run
+# rather than queueing a second multi-GB Nix build behind it.
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # CI is non-incremental by contract (firestream-ci asserts this too, but the
+  # plain-cargo jobs never reach that code path).
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Root Cargo workspace. No Nix, no Docker — minutes, not hours.
+  # ───────────────────────────────────────────────────────────────────────────
+  rust:
+    name: cargo (root workspace)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins `stable` + rustfmt/clippy; the action honours
+      # it. Root crates are edition 2024, so 1.85+ is required.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: root-workspace
+
+      - name: make build (cargo build --workspace)
+        run: make build
+
+      # NOT `make test`. `firestream-api-server-web`'s integration tests are
+      # `#[db_test]`s: each one forks a database from the one configured in
+      # `config/environments/test.toml` and needs a live Postgres plus applied
+      # migrations. Standing that up is a separate piece of work (see the
+      # handoff in the phase report) — until then the package is excluded
+      # explicitly rather than silently red-lighting every PR.
+      #
+      # The e2e suites (`firestream`'s tests/e2e.rs and firestream-e2e-k8s) are
+      # `#[ignore]`d and are therefore already excluded here; Phase 9 turns them
+      # into advisory pipeline phases instead.
+      - name: cargo test --workspace (excluding db-backed api-server tests)
+        run: cargo test --workspace --exclude firestream-api-server-web
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # The isolated src/util workspace + the two anti-drift golden-vector gates.
+  #
+  # Phase 5 landed `test-strategy-parity` and Phase 7 `test-registry-parity`,
+  # both as prerequisites of `test-util` — but nothing ran `test-util`. This
+  # job is that trigger. They are also invoked as their own steps first so a
+  # failure is attributed to the right gate in the checks UI instead of being
+  # buried in the front of a `cargo test` log.
+  # ───────────────────────────────────────────────────────────────────────────
+  util:
+    name: cargo (src/util) + parity gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/util
+          key: util-workspace
+
+      # src/util links zlib (git2 -> libgit2-sys -> libz-sys) and builds
+      # aws-lc-sys (rustls 0.23) via cmake+perl. ubuntu-latest ships all of
+      # these; installing explicitly makes the dependency legible and survives
+      # an image change. protoc is NOT needed: the `codegen` feature is off and
+      # src/wire is committed.
+      - name: native deps for src/util
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zlib1g-dev libssl-dev cmake perl pkg-config
+
+      # 45 golden vectors: bin/build/strategy.sh vs firestream_ci::platform.
+      - name: strategy parity (shell half)
+        run: make test-strategy-parity
+
+      # 70 golden vectors: _common.sh CONTAINER_REGISTRY vs the CI profile vs
+      # Profile::resolve_package_name. Guards the `redis` -> `redis-7` landmine.
+      - name: registry parity (shell half)
+        run: make test-registry-parity
+
+      # Runs both parity gates again (as its own prerequisites) and then
+      # `cargo test --workspace` inside src/util, which includes the RUST half
+      # of both gates (`platform::` and `registry_parity`).
+      - name: make test-util
+        run: make test-util
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Nix: build the CI profile payload and prove it resolves to a real,
+  # non-empty phase DAG. Cheap by construction — `ci-dry-run` executes no
+  # builds — but it does require Nix and one crane build of firestream-ci.
+  # ───────────────────────────────────────────────────────────────────────────
+  ci-profile:
+    name: nix profile + ci-dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # fetch-depth: 0 — the flake reads inputs.self.rev.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: free disk space
+        run: bash .github/scripts/free-disk-space.sh
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            max-jobs = auto
+            cores = 0
+
+      # Store cache in the GitHub Actions cache. No external service and no
+      # secret, which is what makes this workable on a fork/PR. It is NOT a
+      # substitute for a real binary cache (Cachix/attic/FlakeHub) — the GH
+      # cache is capped at 10 GB per repo and evicts LRU, so the gc knobs below
+      # keep the saved store under that ceiling rather than thrashing it.
+      - uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-profile-${{ runner.os }}-${{ hashFiles('flake.lock', 'src/util/Cargo.lock') }}
+          restore-prefixes-first-match: nix-profile-${{ runner.os }}-
+          gc-max-store-size-linux: 6G
+          purge: true
+          purge-prefixes: nix-profile-${{ runner.os }}-
+          purge-created: 604800
+
+      # `.#firestream-ci-profile` is a pure eval + two tiny derivations.
+      # `.#firestream-ci` is the expensive one (tonic, axum x2, reqwest,
+      # rustls/aws-lc, bollard, git2, superconsole, ratatui) — it is the reason
+      # this job has a 45-minute budget and a store cache.
+      - name: nix build .#firestream-ci-profile .#firestream-ci
+        run: |
+          nix build .#firestream-ci-profile --out-link result-ci-profile --print-build-logs
+          nix build .#firestream-ci         --out-link result-ci         --print-build-logs
+
+      # python3 rather than `nix run nixpkgs#jq`: jq via the flake registry
+      # pulls a SECOND nixpkgs (the registry's, not flake.lock's) for a
+      # one-line assertion. python3 is already on the runner.
+      - name: assert the emitted manifest is schema v1
+        run: |
+          test -f result-ci-profile/ci-manifest.json
+          python3 -c "import json,sys; d=json.load(open('result-ci-profile/ci-manifest.json')); sys.exit(0 if d.get('schema_version')==1 else 1)"
+          echo "ci-manifest.json OK (schema_version=1)"
+
+      # `make ci-dry-run` shells out to a bare `firestream-ci`, and resolves the
+      # profile from FIRESTREAM_CI_PROFILE (a DIRECTORY containing
+      # ci-manifest.json — same shape the devshell exports).
+      - name: put firestream-ci on PATH and export the profile
+        run: |
+          echo "$PWD/result-ci/bin" >> "$GITHUB_PATH"
+          echo "FIRESTREAM_CI_PROFILE=$PWD/result-ci-profile" >> "$GITHUB_ENV"
+
+      # Build-free. Prints the phase DAG, tiers, resolved attrs, export rules
+      # and passthrough set — and HARD-FAILS on a profile that would run
+      # nothing (Phase 6 closed that green-no-op footgun deliberately). This is
+      # the cheapest possible early failure for a misconfigured profile, which
+      # is exactly why it runs before anything expensive.
+      - name: make ci-dry-run
+        run: |
+          set -o pipefail
+          make ci-dry-run 2>&1 | tee ci-dry-run.log
+
+      - name: dry-run output to the job summary
+        if: always()
+        run: |
+          {
+            echo '## CI profile (dry run)'
+            echo
+            echo '```'
+            cat ci-dry-run.log 2>/dev/null || echo '(no output — make ci-dry-run did not run)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # The real pipeline, check mode: tidy (advisory) + verify (required).
+  # `build` and `attest` are release-only and are skipped by --mode check, so
+  # this job does NOT build a single container image or chart.
+  #
+  # ── Why this job is gated ──────────────────────────────────────────────────
+  # `verify` builds the 13 flake checks, each of which compiles the `firestream`
+  # crate under Nix. On a GitHub-hosted 4-core runner with a COLD store that is
+  # not reliably a sub-45-minute proposition. Rather than ship a job that
+  # red-lights on day one, it runs only where it can actually finish:
+  #
+  #   * set the repository variable FIRESTREAM_CI_RUNNER to a self-hosted
+  #     runner label, or
+  #   * set it to `ubuntu-latest` to opt into running it hosted anyway, or
+  #   * leave it unset and dispatch the workflow manually with
+  #     run_ci_check=true for a one-off hosted run.
+  #
+  # When unset, the job is skipped and `gate` reports it as not-configured
+  # rather than green.
+  # ───────────────────────────────────────────────────────────────────────────
+  ci-check:
+    name: firestream-ci ci-linux --mode check
+    if: vars.FIRESTREAM_CI_RUNNER != '' || inputs.run_ci_check
+    runs-on: ${{ vars.FIRESTREAM_CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: free disk space
+        run: bash .github/scripts/free-disk-space.sh
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            max-jobs = auto
+            cores = 0
+
+      - uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-check-${{ runner.os }}-${{ hashFiles('flake.lock', 'src/util/Cargo.lock') }}
+          restore-prefixes-first-match: nix-check-${{ runner.os }}-
+          gc-max-store-size-linux: 8G
+          purge: true
+          purge-prefixes: nix-check-${{ runner.os }}-
+          purge-created: 604800
+
+      # `make ci-check` -> `firestream-ci ci-linux --mode check`. It MUST run
+      # inside `nix develop`: the devshell is what puts firestream-ci and
+      # nix-eval-jobs on PATH and exports FIRESTREAM_CI_PROFILE. Running it from
+      # a bare shell trips the profile's devshell-sentinel guard.
+      #
+      # FIRESTREAM_DEVSHELL=1 is exported explicitly as a belt-and-braces
+      # measure: the profile's sentinel set is
+      # {IN_NIX_SHELL (any), FIRESTREAM_DEVSHELL=1} matched with ANY semantics,
+      # and the guard's failure return value is *also* 2 — the same code as a
+      # PartiallyPassed verdict. Setting the sentinel makes that collision
+      # unreachable; the `case` below defends against it anyway.
+      #
+      # CI_RUNNER=host-linux pins the runner rather than letting detection pick
+      # `docker` inside a container-ish environment.
+      # NOT `make ci-check`. GNU make collapses EVERY failed recipe to its own
+      # exit 2 (verified: a recipe exiting 1 makes `make` exit 2), which would
+      # alias Failed onto PartiallyPassed and let a REQUIRED failure through the
+      # `case` below as a non-blocking warning. That is the exact hole the
+      # tri-state exists to prevent, so the binary is invoked directly and the
+      # make targets stay a human convenience.
+      - name: firestream-ci ci-linux --mode check (tri-state)
+        id: cicheck
+        run: |
+          set -o pipefail
+          export FIRESTREAM_DEVSHELL=1
+          export CI_RUNNER=host-linux
+          rc=0
+          nix develop --command firestream-ci ci-linux --mode check 2>&1 | tee ci-check.log || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+          # ── Exit-code contract (firestream_ci::pipeline::Verdict) ──────────
+          #   0  Passed            — every task green.
+          #   1  Failed            — at least one REQUIRED task failed. Gate.
+          #   2  PartiallyPassed   — every Required passed, >=1 Advisory failed.
+          #                          Reported, NOT a merge blocker. This tri-state
+          #                          is the whole reason slow/flaky work can live
+          #                          in the pipeline at all.
+          case "$rc" in
+            0)
+              echo "verdict=passed" >> "$GITHUB_OUTPUT"
+              ;;
+            2)
+              # Disambiguate the one non-verdict exit 2 in ci-linux: the
+              # devshell-sentinel guard returns 2 *before* the pipeline runs.
+              # It is a harness misconfiguration, not an advisory failure, and
+              # must fail.
+              if grep -q 'must run inside the Nix devshell' ci-check.log; then
+                echo "verdict=misconfigured" >> "$GITHUB_OUTPUT"
+                echo "::error::firestream-ci never started: devshell guard tripped (exit 2 is NOT a partial verdict here)"
+                exit 1
+              fi
+              echo "verdict=partial" >> "$GITHUB_OUTPUT"
+              echo "::warning::Pipeline PARTIAL (exit 2): every Required task passed; at least one Advisory task failed. Not blocking the merge."
+              ;;
+            *)
+              echo "verdict=failed" >> "$GITHUB_OUTPUT"
+              echo "::error::Pipeline FAILED (exit $rc): a Required task failed."
+              exit "$rc"
+              ;;
+          esac
+
+      # The rundir carries spans, per-attr logs, ci-summary.md and manifest.json
+      # — the entire reason the pipeline is observable. Upload it whatever the
+      # verdict, because a partial or failed run is when it matters most.
+      - name: collect the run directory
+        if: always()
+        run: |
+          # shellcheck disable=SC2012  # rundir names are date/sha/counter, never exotic
+          rundir="$(ls -d _build/*/*/* 2>/dev/null | tail -1 || true)"
+          if [ -n "$rundir" ]; then
+            echo "rundir=$rundir" >> "$GITHUB_ENV"
+            if [ -f "$rundir/profiles/ci-summary.md" ]; then
+              cat "$rundir/profiles/ci-summary.md" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "no rundir produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always() && env.rundir != ''
+        with:
+          name: ci-check-rundir-${{ github.run_id }}
+          path: |
+            ${{ env.rundir }}/manifest.json
+            ${{ env.rundir }}/profiles/**
+            ${{ env.rundir }}/logs/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # One status to protect the branch on. `needs` + an explicit result check,
+  # because a skipped `needs` job does NOT fail a dependent job by default —
+  # which is precisely how a gated-out ci-check would otherwise read as green.
+  # ───────────────────────────────────────────────────────────────────────────
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    needs: [rust, util, ci-profile, ci-check]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: evaluate
+        run: |
+          rust='${{ needs.rust.result }}'
+          util='${{ needs.util.result }}'
+          profile='${{ needs.ci-profile.result }}'
+          check='${{ needs.ci-check.result }}'
+
+          echo "rust=$rust util=$util ci-profile=$profile ci-check=$check"
+          {
+            echo '## Gate'
+            echo
+            echo "| job | result |"
+            echo "| --- | --- |"
+            echo "| rust | $rust |"
+            echo "| util | $util |"
+            echo "| ci-profile | $profile |"
+            echo "| ci-check | $check |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          for r in "$rust" "$util" "$profile"; do
+            [ "$r" = "success" ] || fail=1
+          done
+
+          case "$check" in
+            success) ;;
+            skipped)
+              echo "::notice::ci-check did not run — repository variable FIRESTREAM_CI_RUNNER is unset. See .github/workflows/build.yaml."
+              ;;
+            *) fail=1 ;;
+          esac
+
+          exit "$fail"

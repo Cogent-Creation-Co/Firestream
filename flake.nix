@@ -58,6 +58,8 @@
       imports = [
         ./nix/flake-modules/framework.nix
         ./nix/flake-modules/rust.nix
+        ./nix/flake-modules/util.nix
+        ./nix/flake-modules/ci-profile.nix
         ./nix/flake-modules/devshell.nix
         ./nix/flake-modules/checks.nix
         ./nix/flake-modules/registry.nix

@@ -1,0 +1,132 @@
+[package]
+name = "firestream-otel-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "OpenTelemetry CLI for emitting spans from shell scripts and CI pipelines (Rust port of equinix-labs/otel-cli)"
+repository.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "otel-cli"
+path = "src/main.rs"
+
+[lib]
+name = "otel_cli"
+path = "src/lib.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4.5"
+
+# Async runtime
+tokio = { version = "1.40", default-features = false, features = [
+    "rt",
+    "macros",
+    "process",
+    "net",
+    "signal",
+    "time",
+    "fs",
+    "io-util",
+    "sync",
+] }
+async-trait = "0.1"
+
+# OTLP wire types (use the canonical Rust types, no build.rs codegen)
+opentelemetry-proto = { version = "0.32", default-features = false, features = [
+    "gen-tonic",
+    "trace",
+    "with-serde",
+] }
+
+# gRPC
+tonic = { version = "0.14", default-features = false, features = [
+    "transport",
+    "tls-ring",
+    "tls-native-roots",
+    "router",
+    "server",
+    "codegen",
+] }
+tonic-prost = "0.14"
+prost = "0.14"
+
+# HTTP client (HTTP/protobuf + HTTP/JSON OTLP)
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "stream",
+    "json",
+] }
+
+# Embedded server (HTTP receiver in `server` mode)
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "http2",
+    "tokio",
+    "macros",
+] }
+tower = "0.5"
+hyper = { version = "1", features = ["server"] }
+
+# TUI
+ratatui = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors / logging
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+    "fmt",
+] }
+
+# Utilities
+regex = "1"
+hex = "0.4"
+bytes = "1"
+humantime = "2"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+whoami = "1"
+rand = "0.8"
+url = "2"
+
+# TLS support
+rustls = "0.23"
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+
+# Unix-specific.
+# `fs` provides flock/fdatasync/fsync + sys::stat (futimens, used in tests);
+# `time` provides TimeSpec for the checkpoint rotation tests' mtime control.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal", "process", "fs", "time"] }
+
+# macOS process introspection for the memory-sampler subcommand: proc_listpids
+# + proc_pidinfo (PROC_PIDTBSDINFO / PROC_PIDTASKINFO) read aggregate RSS
+# across a process tree without forking. libc declares the FFI bindings and
+# struct layouts directly; no extra wrapper crate needed.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+walkdir = "2"
+wiremock = "0.6"
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
