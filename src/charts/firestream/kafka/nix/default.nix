@@ -77,7 +77,7 @@
   # - provenance: framework.nix does not yet plumb inputs.self.rev into
   #   evalChart; both fields stay null.
   # ------------------------------------------------------------------
-  config.kafka._meta.deployment = {
+  config.kafka._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

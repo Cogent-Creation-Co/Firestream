@@ -35,7 +35,7 @@
   # - lifecycle.dependsOn: SeaweedFS is the object store — a leaf dependency
   #   other charts (spark/airflow) depend on, not the other way round.
   # ------------------------------------------------------------------
-  config.seaweedfs._meta.deployment = {
+  config.seaweedfs._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

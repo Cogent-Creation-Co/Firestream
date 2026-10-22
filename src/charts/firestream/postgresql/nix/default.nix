@@ -63,7 +63,7 @@
   # - provenance: framework.nix does not yet plumb inputs.self.rev into
   #   evalChart; both fields stay null.
   # ------------------------------------------------------------------
-  config.postgresql._meta.deployment = {
+  config.postgresql._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

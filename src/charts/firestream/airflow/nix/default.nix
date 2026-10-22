@@ -101,7 +101,7 @@
   # e2e harness performs its own pod-Ready wait plus a per-protocol probe
   # (see src/lib/rust/firestream-e2e-k8s), which is the layer that can observe
   # the migration hook completing.
-  config.airflow._meta.deployment = {
+  config.airflow._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = false;
     wait = false;
     waitForJobs = false;

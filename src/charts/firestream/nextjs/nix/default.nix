@@ -34,7 +34,7 @@
   # before nextjs serves traffic, so --wait + a generous timeout cover image
   # pulls + subchart rollout. dependsOn stays empty: postgresql is bundled IN
   # this release, not a separate top-level stack dependency.
-  config.nextjs._meta.deployment = {
+  config.nextjs._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

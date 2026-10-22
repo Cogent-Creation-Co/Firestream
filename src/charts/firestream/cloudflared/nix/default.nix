@@ -47,7 +47,7 @@
   # subchart to wait on and no Jobs: a short timeout is right, and `wait` is
   # meaningful because readiness genuinely reflects edge registration (the
   # probes hit cloudflared's /ready).
-  config.cloudflared._meta.deployment = {
+  config.cloudflared._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

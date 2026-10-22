@@ -44,7 +44,7 @@
   # chart-manifest.json metadata. A proxy is a small, fast rollout with no
   # subchart to wait on and no Jobs, so the timeout is short relative to the
   # data-plane charts.
-  config.nginx._meta.deployment = {
+  config.nginx._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;
