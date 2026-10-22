@@ -284,6 +284,10 @@ spec:
               value: {{ .Values.containerPorts.http | quote }}
             - name: ODOO_LONGPOLLING_PORT_NUMBER
               value: {{ .Values.containerPorts.gevent | quote }}
+            {{- if .Values.managedSettings.existingSecret }}
+            - name: FIRESTREAM_ODOO_MANAGED_DIR
+              value: {{ .Values.managedSettings.mountPath | quote }}
+            {{- end }}
             {{- if .Values.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}
@@ -325,16 +329,26 @@ spec:
           {{- else if .Values.readinessProbe.enabled }}
           readinessProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.readinessProbe "enabled" "path") "context" $) | nindent 12 }}
             httpGet:
+              {{- if .Values.probesUseHealthd }}
+              path: /readyz
+              port: {{ .Values.healthdPort }}
+              {{- else }}
               path: {{ .Values.readinessProbe.path }}
               port: http
+              {{- end }}
           {{- end }}
           {{- if .Values.customStartupProbe }}
           startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 12 }}
           {{- else if .Values.startupProbe.enabled }}
           startupProbe: {{- include "common.tplvalues.render" (dict "value" (omit .Values.startupProbe "enabled" "path") "context" $) | nindent 12 }}
             httpGet:
+              {{- if .Values.probesUseHealthd }}
+              path: /readyz
+              port: {{ .Values.healthdPort }}
+              {{- else }}
               path: {{ .Values.startupProbe.path }}
               port: http
+              {{- end }}
           {{- end }}
           {{- end }}
           {{- if .Values.resources }}
@@ -355,6 +369,11 @@ spec:
             {{- if .Values.customPostInitScripts }}
             - mountPath: /docker-entrypoint-init.d
               name: custom-postinit
+            {{- end }}
+            {{- if .Values.managedSettings.existingSecret }}
+            - name: managed-settings
+              mountPath: {{ .Values.managedSettings.mountPath | quote }}
+              readOnly: true
             {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
@@ -388,6 +407,18 @@ spec:
           configMap:
             name: {{ printf "%s-postinit" (include "common.names.fullname" .) | trunc 63 | trimSuffix "-" }}
             defaultMode: 0755
+        {{- end }}
+        {{- if .Values.managedSettings.existingSecret }}
+        {{- /*
+        NOTE: 0440, not 0400. Odoo runs as a non-root uid (1001 in the
+        Firestream images), and the kubelet makes the Secret files root-owned
+        with the pod fsGroup as the group. Only the group read bit lets that
+        uid read them, so the pod must set fsGroup to the Odoo gid.
+        */}}
+        - name: managed-settings
+          secret:
+            secretName: {{ .Values.managedSettings.existingSecret | quote }}
+            defaultMode: 0440
         {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}

@@ -55,6 +55,7 @@
 
     # Init scripts run on first boot of the container
     ./options/init.nix
+    ./options/managed-settings.nix
 
     # Main odoo Deployment pod-spec (replicaCount, probes, resources,
     # containerPorts, podSecurityContext, containerSecurityContext,
@@ -104,7 +105,7 @@
   # - provenance: framework.nix does not yet plumb inputs.self.rev into
   #   evalChart; both fields stay null.
   # ------------------------------------------------------------------
-  config.odoo._meta.deployment = {
+  config.odoo._meta.deployment = lib.mapAttrs (_: lib.mkDefault) {
     atomic = true;
     wait = true;
     waitForJobs = true;

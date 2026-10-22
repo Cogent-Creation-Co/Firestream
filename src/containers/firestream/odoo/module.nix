@@ -34,6 +34,10 @@
 # "last" is the historical ordering.
 , addonsDirPrecedence ? "last"
 
+# nixpkgs Python packages for Odoo (options.odoo.extraPythonPackages): a
+# function of the interpreter's package set.
+, extraPythonPackages ? (_: [ ])
+
 # Externalized core-surface config. Defaults below are EXACTLY today's literals
 # so the legacy flake.nix path (which does not pass these) and evalContainer
 # (which passes the same values from options.nix) yield identical factory args.
@@ -59,6 +63,15 @@
     ODOO_PID_FILE = "/opt/firestream/odoo/tmp/odoo.pid";
     ODOO_LOGS_DIR = "/opt/firestream/odoo/log";
     ODOO_LOG_FILE = "/opt/firestream/odoo/log/odoo-server.log";
+    # NOTE: a container log on stdout reaches `kubectl logs` and the
+    # cluster's log service; a file in the container is lost at each
+    # restart and fills the ephemeral disk.
+    ODOO_LOG_TO_STDOUT = "yes";
+
+    # Warm-up after the server starts (see runCmd).
+    ODOO_WARMUP_ENABLED = "yes";
+    ODOO_WARMUP_PATHS = "/web/login /odoo /web/assets/any/web.assets_web.min.js /web/assets/any/web.assets_web.min.css /web/assets/any/web.assets_web_dark.min.css /web/assets/any/web.assets_web_print.min.css /web/assets/any/web.assets_frontend.min.css /web/assets/any/web.assets_frontend_minimal.min.js /web/assets/any/web.assets_frontend_lazy.min.js";
+    ODOO_WARMUP_MARKER = "/tmp/firestream-odoo-warm";
 
     # Volume paths
     ODOO_VOLUME_DIR = "/firestream/odoo";
@@ -95,6 +108,8 @@
     ODOO_SKIP_MODULES_UPDATE = "no";
     ODOO_LOAD_DEMO_DATA = "no";
     ODOO_LIST_DB = "no";
+    ODOO_MODULE_SYNC = "boot";
+    ODOO_FIRST_INIT_CALLS = "";
 
     # Odoo credentials
     ODOO_EMAIL = "admin";
@@ -196,6 +211,42 @@ let
     layerDirs = addonsLayout.layerDirNames addonLayers;
     inherit addonsDirPrecedence;
   });
+
+  # NOTE: after the virtual environment on PYTHONPATH, so a package that
+  # both hold keeps the version that the Odoo dependencies were locked with.
+  extraPythonList = extraPythonPackages python.pkgs;
+  extraPythonEnv = python.withPackages (_: extraPythonList);
+  venvSitePackages = "${pythonEnv}/${python.sitePackages}";
+  sitePackages =
+    if extraPythonList == [ ] then venvSitePackages
+    else "${venvSitePackages}:${extraPythonEnv}/${python.sitePackages}";
+
+  # NOTE: a copy, not a symlink farm. Python puts the real directory of the
+  # script on sys.path, so odoo_tools.py finds odoo_backup.py only when both
+  # files sit in one directory.
+  odooToolsSrc = lib.fileset.toSource {
+    root = ./scripts;
+    fileset = lib.fileset.unions [ ./scripts/odoo_tools.py ./scripts/odoo_backup.py ];
+  };
+
+  # `firestream-odoo-{sync,call,backup,restore,backups}`. A `kubectl exec` or
+  # a Job command does not pass through the entrypoint, so each wrapper loads
+  # the image env defaults itself and sets what the entrypoint wrapper sets.
+  odooTool = command: pkgs.writeShellScriptBin "firestream-odoo-${command}" ''
+    if [[ -f /opt/firestream/scripts/odoo-env.sh ]]; then
+      # shellcheck disable=SC1091
+      source /opt/firestream/scripts/odoo-env.sh
+    fi
+    export PYTHONPATH="''${ODOO_BASE_DIR:-/opt/firestream/odoo}:${sitePackages}"
+    export LD_LIBRARY_PATH="${lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+    export NIX_SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+    exec ${pythonEnv}/bin/python ${odooToolsSrc}/odoo_tools.py ${command} "$@"
+  '';
+  odooTools = pkgs.symlinkJoin {
+    name = "firestream-odoo-tools";
+    paths = map odooTool [ "sync" "call" "backup" "restore" "backups" ];
+  };
 
   # Read external script files
   validateScript = builtins.readFile ./scripts/validate.sh;
@@ -531,6 +582,8 @@ in firestream.mkPythonContainerModule {
   # Image naming passthrough.
   inherit imageName imageTag;
 
+  sitePackagesPath = sitePackages;
+
   # Runtime directories with declarative schema
   runtimeDirs = {
     home = {
@@ -725,6 +778,10 @@ in firestream.mkPythonContainerModule {
 
   # Initialization
   initFn = initScript;
+  # WARNING: init.sh installs `installModules` into an existing database on
+  # every boot after the first. With the default first-boot-only gate, a
+  # module added to an image never reaches a database that already exists.
+  initEveryBoot = true;
 
   # Startup command
   runCmd = ''
@@ -735,10 +792,66 @@ in firestream.mkPythonContainerModule {
     conf_file="''${ODOO_CONF_FILE:-/opt/firestream/odoo/conf/odoo.conf}"
     pid_file="''${ODOO_PID_FILE:-/opt/firestream/odoo/tmp/odoo.pid}"
 
+    # NOTE: each worker compiles templates and each bundle is built on its
+    # first request. The warm-up makes those requests before the healthd
+    # readiness check passes, so the first person after a boot does not
+    # wait for them. It runs in the background because Odoo must replace
+    # this shell to receive the container's signals.
+    odoo_warmup() {
+      local marker="$1"
+      local base="http://127.0.0.1:''${ODOO_PORT_NUMBER:-8069}"
+      local passes="''${ODOO_WARMUP_PASSES:-''${ODOO_WORKERS:-1}}"
+      (( passes < 1 )) && passes=1
+      local i
+      for (( i = 0; i < 900; i++ )); do
+        ${pkgs.curl}/bin/curl -fsS -o /dev/null --max-time 5 "$base/web/health" && break
+        sleep 2
+      done
+      local path attempt n failed started
+      for path in ''${ODOO_WARMUP_PATHS:-}; do
+        for (( attempt = 1; attempt <= 5; attempt++ )); do
+          failed=0
+          started=$SECONDS
+          local -a pids=()
+          for (( n = 0; n < passes; n++ )); do
+            ${pkgs.curl}/bin/curl -fsSL -o /dev/null --max-time "''${ODOO_WARMUP_TIMEOUT:-300}" "$base$path" &
+            pids+=( $! )
+          done
+          for n in "''${pids[@]}"; do wait "$n" || failed=1; done
+          if (( failed == 0 )); then
+            info "Warm-up: $path in $(( SECONDS - started ))s"
+            break
+          fi
+          warn "Warm-up: $path failed (attempt $attempt of 5)"
+          sleep $(( attempt * 5 ))
+        done
+      done
+      # WARNING: the marker is written also after a failed path. A bundle
+      # that cannot build would otherwise keep the pod out of service.
+      : > "$marker"
+      info "Warm-up complete"
+    }
+
+    warm_marker="''${ODOO_WARMUP_MARKER:-/tmp/firestream-odoo-warm}"
+    rm -f "$warm_marker"
+    if is_boolean_yes "''${ODOO_WARMUP_ENABLED:-yes}"; then
+      odoo_warmup "$warm_marker" &
+    else
+      : > "$warm_marker"
+    fi
+
+    # NOTE: `--logfile=` on the command line overrides odoo.conf, so the
+    # config file keeps one shape for both log targets.
+    log_args=()
+    if is_boolean_yes "''${ODOO_LOG_TO_STDOUT:-yes}"; then
+      log_args=( --logfile= )
+    fi
+
     # Run Odoo
     exec python /opt/firestream/odoo/odoo-bin \
       --config="$conf_file" \
-      --pidfile="$pid_file"
+      --pidfile="$pid_file" \
+      "''${log_args[@]}"
   '';
 
   inherit systemDeps runtimeBinDeps;
@@ -777,7 +890,8 @@ in firestream.mkPythonContainerModule {
   # Extra packages for the container. Each addons derivation is appended only
   # when its list is non-empty, so the stock image's closure is byte-identical
   # to the pre-vendoring / pre-layers image.
-  extraDeps = [ odooSource ]
+  extraDeps = [ odooSource odooTools ]
+    ++ lib.optional (extraPythonList != [ ]) extraPythonEnv
     ++ lib.optional (vendoredAddons != [ ]) vendoredAddonsDrv
     ++ lib.optional (addonLayers != [ ]) addonLayersDrv;
 

@@ -288,7 +288,8 @@ in
       The entrypoint appends them to `--init=base` on first boot and re-`--init`s
       them on subsequent boots, so modules newly baked into an image are also
       installed on existing databases (`--init` is idempotent: missing modules
-      are installed, present ones updated).
+      are installed, present ones updated). With `moduleSync = "release"`,
+      only the first boot and `firestream-odoo-sync` install them.
     '';
   };
 
@@ -412,6 +413,71 @@ in
     '';
   };
 
+  options.odoo.moduleSync = lib.mkOption {
+    type = lib.types.enum [ "boot" "release" ];
+    default = "boot";
+    example = "release";
+    description = ''
+      When the database gets the modules of the image, exported as
+      ODOO_MODULE_SYNC.
+
+      `"boot"`: each boot after the first runs `--init` on
+      `installModules`, and `--update=all` unless ODOO_SKIP_MODULES_UPDATE
+      is set. The site is down while the update runs.
+
+      `"release"`: a boot never changes the modules of an existing
+      database. The release runs `firestream-odoo-sync` instead, which
+      installs the missing `installModules` and updates only the modules
+      whose files changed (OCA `module_auto_update`, which must then be in
+      `installModules`). The first boot on an empty database still
+      initializes it. A boot finds an existing database by its
+      `ir_module_module` table, so the pod needs no persistent marker file.
+
+      In release mode, the first init records its progress in the table
+      `firestream_odoo_init`. A boot after an interrupted first init
+      empties the database and installs again, because the files of the
+      first attempt were on the disk of the pod that stopped. The server
+      never starts before the first init is done, so that database holds
+      no user data. At its end the first init runs `firstInitCalls`, saves
+      the module checksums, and checks that each `installModules` entry is
+      installed. A boot on a database with an unfinished module change
+      (a module in `to install`, `to upgrade` or `to remove`) stops with
+      an error, unless ODOO_SYNC_ON_BOOT=yes makes that boot run
+      `firestream-odoo-sync` first.
+    '';
+  };
+
+  options.odoo.firstInitCalls = lib.mkOption {
+    type = lib.types.listOf (lib.types.strMatching "[a-z0-9_.]+:[A-Za-z0-9_]+");
+    default = [ ];
+    example = [ "ir.attachment:_platform_storage_migrate" ];
+    description = ''
+      Model methods (`model:method`) that `firestream-odoo-call` runs at the
+      end of the first init of a database, with `moduleSync = "release"`.
+      Exported as ODOO_FIRST_INIT_CALLS. A failed call stops the boot, and
+      the next boot finishes the first init again. Use it for a step that
+      must follow the install of every module, such as a move of the
+      attachments that modules wrote before a storage module loaded.
+    '';
+  };
+
+  options.odoo.extraPythonPackages = lib.mkOption {
+    type = lib.types.functionTo (lib.types.listOf lib.types.package);
+    default = _: [ ];
+    defaultText = lib.literalExpression "ps: [ ]";
+    example = lib.literalExpression "ps: [ ps.gcsfs ps.python-slugify ]";
+    description = ''
+      Python packages from nixpkgs for the Odoo processes, for example the
+      external dependencies of a vendored addon. The function gets the
+      package set of the image's interpreter (`python.pkgs`).
+
+      The packages and their dependencies go on PYTHONPATH after the
+      image's own virtual environment. A package that both provide keeps
+      the version of the virtual environment. An empty list leaves the
+      image unchanged.
+    '';
+  };
+
   options.odoo.listDb = lib.mkOption {
     type = lib.types.bool;
     default = false;
@@ -434,6 +500,7 @@ in
     # odoo.conf template can never disagree.
     extraModuleArgs.addonLayers = config.odoo.addonLayers;
     extraModuleArgs.addonsDirPrecedence = config.odoo.addonsDirPrecedence;
+    extraModuleArgs.extraPythonPackages = config.odoo.extraPythonPackages;
 
     # localAddons ride the vendoredAddons machinery: each dir becomes a spec
     # whose `src` wins over GitHub coordinates; vendor-addons.nix auto-discovers
@@ -485,6 +552,15 @@ in
       ODOO_PID_FILE = "/opt/firestream/odoo/tmp/odoo.pid";
       ODOO_LOGS_DIR = "/opt/firestream/odoo/log";
       ODOO_LOG_FILE = "/opt/firestream/odoo/log/odoo-server.log";
+      # NOTE: a container log on stdout reaches `kubectl logs` and the
+      # cluster's log service; a file in the container is lost at each
+      # restart and fills the ephemeral disk.
+      ODOO_LOG_TO_STDOUT = "yes";
+
+      # Warm-up after the server starts (see runCmd).
+      ODOO_WARMUP_ENABLED = "yes";
+      ODOO_WARMUP_PATHS = "/web/login /odoo /web/assets/any/web.assets_web.min.js /web/assets/any/web.assets_web.min.css /web/assets/any/web.assets_web_dark.min.css /web/assets/any/web.assets_web_print.min.css /web/assets/any/web.assets_frontend.min.css /web/assets/any/web.assets_frontend_minimal.min.js /web/assets/any/web.assets_frontend_lazy.min.js";
+      ODOO_WARMUP_MARKER = "/tmp/firestream-odoo-warm";
 
       # Volume paths
       ODOO_VOLUME_DIR = "/firestream/odoo";
@@ -517,6 +593,8 @@ in
       ODOO_SKIP_MODULES_UPDATE = "no";
       ODOO_LOAD_DEMO_DATA = "no";
       ODOO_LIST_DB = if config.odoo.listDb then "yes" else "no";
+      ODOO_MODULE_SYNC = config.odoo.moduleSync;
+      ODOO_FIRST_INIT_CALLS = lib.concatStringsSep " " config.odoo.firstInitCalls;
       # Comma-separated modules init.sh installs (see odoo.installModules).
       ODOO_INSTALL_MODULES = lib.concatStringsSep "," config.odoo.installModules;
 
@@ -578,13 +656,14 @@ in
 
     exposedPorts = lib.mkDefault [ 8069 8072 ];
 
-    # Phase 4: enable in-image firestream-healthd. Odoo's /web/database/selector
-    # is publicly available once the http worker is up; we use curl --fail to
-    # treat any non-2xx as not-yet-ready. `ODOO_PORT_NUMBER` defaults to 8069.
+    # NOTE: ready means warm. runCmd writes the marker after the warm-up
+    # requests, and /web/health then proves that the server still answers.
+    # /web/database/selector is not a readiness signal: list_db = False
+    # turns it off in production.
     health = {
       enable = lib.mkDefault true;
       readinessCmd = lib.mkDefault
-        ''curl -fsS -o /dev/null "http://localhost:''${ODOO_PORT_NUMBER:-8069}/web/database/selector"'';
+        ''test -f "''${ODOO_WARMUP_MARKER:-/tmp/firestream-odoo-warm}" && curl -fsS --max-time 3 -o /dev/null "http://localhost:''${ODOO_PORT_NUMBER:-8069}/web/health"'';
     };
 
     # Odoo requires a postgres metadata DB; embed it as a dependency sub-service

@@ -174,6 +174,18 @@ in {
       description = "Startup probe configuration (carries a `path` field for HTTP probing)";
     };
 
+    probesUseHealthd = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Point the readiness and startup probes at the in-image healthd `/readyz`, which reports ready only after the warm-up";
+    };
+
+    healthdPort = mkOption {
+      type = types.nullOr types.port;
+      default = null;
+      description = "The port of the in-image healthd";
+    };
+
     customLivenessProbe = mkOption {
       type = types.nullOr (types.attrsOf types.anything);
       default = null;

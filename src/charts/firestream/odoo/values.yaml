@@ -192,6 +192,17 @@ extraEnvVarsCM: ""
 ## @param extraEnvVarsSecret Name of existing Secret containing extra env vars
 ##
 extraEnvVarsSecret: ""
+## Platform settings that a release tool writes to a Kubernetes Secret.
+## The chart mounts the Secret read-only in the main Odoo container and sets
+## FIRESTREAM_ODOO_MANAGED_DIR to the mount path. An Odoo addon reads the files.
+## The chart cannot read the Secret, so it adds no checksum annotation. Put a
+## checksum of the Secret data in `podAnnotations` to restart Odoo on a change.
+## @param managedSettings.existingSecret Name of an existing Secret with the managed settings files (empty disables the mount)
+## @param managedSettings.mountPath Directory where the main Odoo container gets the managed settings files
+##
+managedSettings:
+  existingSecret: ""
+  mountPath: /opt/firestream/odoo/managed
 ## @section Odoo deployment parameters
 ##
 
@@ -345,6 +356,13 @@ readinessProbe:
   timeoutSeconds: 5
   failureThreshold: 12
   successThreshold: 1
+## @param probesUseHealthd Point the readiness and startup probes at the in-image healthd `/readyz`
+## NOTE: healthd reports ready only after the warm-up has built the asset
+## bundles and compiled the templates of each worker, so the first request
+## after a boot is not slow. Set it to false for an image without healthd.
+probesUseHealthd: true
+## @param healthdPort The port of the in-image healthd
+healthdPort: 9180
 ## @param startupProbe.enabled Enable startupProbe
 ## @param startupProbe.path Path to check for startupProbe
 ## @param startupProbe.initialDelaySeconds Initial delay seconds for startupProbe
