@@ -463,7 +463,235 @@ You can configure the containers [logging driver](https://docs.docker.com/engine
 
 ## Maintenance
 
-### Dump and restore
+### Module sync at release: `odoo.moduleSync`
+
+`odoo.moduleSync` (env `ODOO_MODULE_SYNC`) sets when the database gets the
+modules of the image.
+
+| Value              | A boot on an existing database                    | Who installs and updates modules |
+|--------------------|---------------------------------------------------|----------------------------------|
+| `boot` (default)   | `--init=<installModules>` and `--update=all`      | each boot                        |
+| `release`          | no module change                                  | `firestream-odoo-sync`           |
+
+With `release`, the boot finds an existing database by its Odoo tables, not by
+a marker file. So the pod can run without a persistent disk. The first boot on
+an empty database still initializes it.
+
+`firestream-odoo-sync` is on the image `PATH`. Run it once for each release,
+before or right after the new pods start:
+
+1. It installs each module of `installModules` that the database does not have.
+2. It updates only the modules whose files changed since the last sync. The
+   checksums come from OCA `module_auto_update`. That module must be on the
+   addons path and in `installModules`.
+3. It saves the new checksums.
+4. It prints one JSON line on stdout, for example
+   `{"status": "ok", "installed": [], "updated": ["sale_rental"], "baseline": false, "duration_seconds": 41.2, ...}`.
+   The Odoo log goes to stderr. A failure prints `"status": "error"` and exits 1.
+
+| Flag         | Effect                                                                  |
+|--------------|-------------------------------------------------------------------------|
+| `--dry-run`  | Report the modules to install and to update. Write nothing.            |
+| `--baseline` | Update every installed module, then save all checksums.                |
+| `--save-checksums` | Save the checksums of the installed modules. Update nothing.     |
+
+In release mode, the first init of an empty database records its progress in
+the table `firestream_odoo_init`. A boot after an interrupted first init
+empties that database and installs again. The files of the first attempt were
+on the disk of the stopped pod, and the server never started on that database. At the end, the first init checks that each module of
+`installModules` is installed, runs the `odoo.firstInitCalls`, and saves the
+module checksums (`firestream-odoo-sync --save-checksums`).
+
+A boot stops with an error when a module change did not finish (a module in
+`to install`, `to upgrade` or `to remove`). Set `ODOO_SYNC_ON_BOOT=yes` for one
+boot to run `firestream-odoo-sync` before the server starts.
+
+A database with no saved checksums (the first sync) always gets a full update,
+because no checksum can prove a module unchanged. The report then says
+`"baseline": true`. Use `--baseline` after a restore of an older database.
+
+`firestream-odoo-call MODEL METHOD [--kwargs JSON] [--dry-run]` calls one model
+method as the superuser and prints the result as one JSON line. Use it for
+one-time data moves.
+
+`--dry-run` works only for a method with a `dry_run` parameter:
+
+- The call passes `dry_run=True` to the method, and it rolls the transaction
+  back at the end.
+- The transaction is read-only (`SET TRANSACTION READ ONLY`). PostgreSQL
+  refuses each write.
+- A commit during the call fails the call. Nothing is written.
+- The call refuses a method without a `dry_run` parameter, and it does not
+  call it. A rollback cannot undo a commit per batch, a file in an object
+  store, or a sent mail.
+
+Both commands read the container's `odoo.conf`. In a Job without that file,
+they read the `ODOO_DATABASE_*`, `ODOO_ADDONS_PATH` and `ODOO_DATA_DIR`
+variables. Two syncs on one database exclude each other with a PostgreSQL
+advisory lock.
+
+### Extra Python packages: `odoo.extraPythonPackages`
+
+`odoo.extraPythonPackages = ps: [ ps.gcsfs ];` adds nixpkgs packages for the
+image's interpreter. They go on `PYTHONPATH` after the image's own virtual
+environment, so a package that both hold keeps the locked version.
+
+### Backup sets: `firestream-odoo-backup`
+
+`firestream-odoo-backup` writes one backup set. A set is one directory:
+`<prefix>/<environment>/<UTC timestamp>/`, for example
+`gs://acme-odoo-backups/odoo-backups/production/20261014T010000Z/`.
+
+| File               | Content                                                                 |
+|--------------------|-------------------------------------------------------------------------|
+| `db.dump`          | `pg_dump --format=custom --no-owner --no-privileges` (compressed)       |
+| `filestore.tar.gz` | The local filestore, `$ODOO_DATA_DIR/filestore/<db>`. In `objectManifest` mode, only the local files that attachments refer to, if any. |
+| `filestore.json`   | Each attachment object in an `fs.storage`, with its size, md5 and the GCS generation that was live at the dump snapshot. Only in `objectManifest` mode. |
+| `manifest.json`    | Written last. See below.                                                |
+
+`manifest.json` holds:
+
+- the tag (`nightly`, `pre-release`, `pre-restore` or `manual`) and the environment;
+- the Odoo version, and the image: `FIRESTREAM_ODOO_IMAGE`, `FIRESTREAM_ODOO_IMAGE_DIGEST`
+  and `FIRESTREAM_ODOO_CODE_ID`, when they are set;
+- the installed modules and the `module_auto_update` checksums;
+- the database name and size, and the PostgreSQL server version;
+- the sha256, md5 and size of each file;
+- the attachment counts and the object count;
+- the start and end times.
+
+A set without `manifest.json` is incomplete. A restore refuses it.
+
+**Consistency.** `pg_dump` and the attachment queries read one database
+snapshot. The object list then names exactly the attachments of the dump. For
+each object, the backup lists all its GCS generations once, and it records
+the generation that was live at the snapshot time.
+
+**Disk.** `pg_dump` streams into the upload, and the backup hashes the bytes
+on the way. The pod needs no disk for the dump.
+
+**Filestore modes** (`--filestore-mode`, or `FIRESTREAM_BACKUP_FILESTORE_MODE`):
+
+- `archive` (the default): a tar of the local filestore.
+- `objectManifest`: a list of the objects, for attachments in OCA
+  `fs_attachment` storage. The objects are not copied. GCS object versioning
+  keeps the old generations, and the list records the generation of each
+  object. Attachments in the database are in `db.dump` already.
+
+**Verification.** The backup fails, and writes no manifest, when:
+
+- the stored md5 of a file differs from the local file (GCS), or a read-back
+  sha256 differs (the `file` target);
+- the object list does not match the `ir_attachment` count;
+- a referenced object, or a local file that an attachment refers to, is not
+  there. `--allow-missing-objects` records the missing files and finishes
+  the set.
+
+An upload never replaces an object (GCS `ifGenerationMatch=0`). So the
+backup account needs `roles/storage.objectCreator` only.
+
+On success, the command prints one JSON line, for example
+`{"command": "backup", "status": "ok", "set": "gs://...", "db_dump_sha256": "...", "object_count": 812, ...}`.
+A failure prints `"status": "error"` and exits 1.
+
+| Flag                      | Default (environment variable)                          |
+|---------------------------|---------------------------------------------------------|
+| `--target gcs\|file`      | `gcs` (`FIRESTREAM_BACKUP_TARGET`)                      |
+| `--bucket NAME`           | (`FIRESTREAM_BACKUP_BUCKET`); an absolute directory for `file` |
+| `--prefix PREFIX`         | `odoo-backups` (`FIRESTREAM_BACKUP_PREFIX`)             |
+| `--env NAME`              | (`FIRESTREAM_BACKUP_ENV`)                               |
+| `--tag TAG`               | `manual` (`FIRESTREAM_BACKUP_TAG`)                      |
+| `--filestore-mode MODE`   | `archive` (`FIRESTREAM_BACKUP_FILESTORE_MODE`)          |
+| `--allow-missing-objects` | off                                                     |
+
+The `gcs` target uses the default Google credentials: Workload Identity in
+GKE. It needs `google-cloud-storage` and `gcsfs` in the image, for example
+`odoo.extraPythonPackages = ps: [ ps.gcsfs ps.fsspec ];`.
+
+### Restore: `firestream-odoo-restore`
+
+```console
+firestream-odoo-restore --set gs://acme-odoo-backups/odoo-backups/production/20261014T010000Z \
+  --database odoo_staging \
+  --storage-root platform_filestore=gs://acme-staging-files/filestore \
+  --filestore-bucket gs://acme-staging-files/filestore --neutralize
+```
+
+`--set latest` takes the newest complete set of `--env` (with `--target`,
+`--bucket` and `--prefix`, as the backup does).
+
+1. It reads `manifest.json`. It refuses a set without it.
+2. It refuses a set of another Odoo major version (the image version, else
+   the `base` module version). `--force` restores it anyway.
+3. With `--filestore-bucket`, it checks that the source storage still holds
+   each listed object generation. A missing one stops the restore here, before
+   any database step, and the error names it.
+4. It downloads `db.dump` and checks its sha256 against the manifest.
+5. It creates a temporary database, `<database>_restore_<timestamp>`, and runs
+   `pg_restore --no-owner --exit-on-error --jobs N` into it. It does not use
+   one transaction: a full Odoo database needs more locks than
+   `max_locks_per_transaction` gives one transaction. The temporary database
+   has a name that no client knows, so a failure only drops it.
+6. It checks the `ir_attachment` count against the manifest.
+7. It points each `fs.storage` row at its `--storage-root CODE=URI`. Without
+   this, a staging copy would write to the production bucket, and its garbage
+   collection could delete production files. A restore refuses a database
+   with an `fs.storage` row that has no `--storage-root`, unless
+   `--keep-storage-roots` is given (a restore into the same environment).
+8. `--neutralize` runs Odoo's neutralize (as `odoo-bin neutralize -d`): no
+   outgoing mail, no crons, no payment providers.
+9. The filestore:
+   - `filestore.tar.gz`: unpacked into `$ODOO_DATA_DIR/filestore/<database>`.
+   - `filestore.json`: with `--filestore-bucket URI`, it copies each listed
+     object generation under that URI, 16 at a time. It lists the
+     destination once, keeps each object that exists, and never deletes.
+     The URI must equal the `--storage-root` of each storage of the set.
+10. It renames the temporary database to `<database>`. A database that
+    exists is refused, unless `--replace` is given. Then the restore stops
+    new sessions on the old database (`ALLOW_CONNECTIONS false`), ends the
+    open ones, and checks again. If clients keep a session, it stops and
+    changes nothing. It renames the old database to
+    `<database>_before_<timestamp>` and the copy to `<database>` in one
+    transaction. The old database keeps `ALLOW_CONNECTIONS false`.
+
+Any failure drops the temporary database, and the target stays as it was.
+The Odoo database role needs `CREATEDB`, and it must own the database that
+`--replace` renames.
+
+| Flag                         | Use                                                     |
+|------------------------------|---------------------------------------------------------|
+| `--set URI\|latest`          | The set. Or `--archive PATH`, an `odoo_dump` archive.    |
+| `--database NAME`            | The database to create.                                 |
+| `--storage-root CODE=URI`    | Repeatable. The new root of the `fs.storage` CODE.      |
+| `--keep-storage-roots`       | Keep the source roots (the same environment only).      |
+| `--filestore-bucket URI`     | Copy the listed objects there.                          |
+| `--neutralize`               | Neutralize the copy before it gets its name.            |
+| `--replace`                  | Swap an existing database; keep the old one.            |
+| `--force`                    | Restore another Odoo major version.                     |
+| `--jobs N`                   | Parallel `pg_restore` jobs. The default is 4.           |
+| `--maintenance-db NAME`      | The database for `CREATE DATABASE`. The default is `postgres`. |
+
+**Permissions.** The restore account reads the backup bucket, and it lists
+and reads the source filestore bucket (all generations). The backup account
+also lists and reads the filestore bucket, to record the generations.
+
+**Retention of the filestore bucket.** Turn on object versioning. Delete
+noncurrent generations with the lifecycle condition
+`daysSinceNoncurrentTime` (for example 30 days), not `age`. `age` counts from
+the creation of a generation, so it can delete a generation that a set in the
+window still lists.
+
+### List: `firestream-odoo-backups list`
+
+`firestream-odoo-backups list [--env NAME] [--latest]` prints one JSON line with each set:
+its URI, the environment, the timestamp, `complete` (a manifest exists), and
+the tag, database, Odoo version, image, object count and dump sha256 from the
+manifest. Without `--env` it lists every environment under the prefix. It
+takes the same `--target`, `--bucket` and `--prefix` flags as the backup.
+`--latest` prints only the newest complete set, as `{"latest": {...}}`. It
+fails when there is none.
+
+### Dump and restore helpers
 
 The image ships dump and restore helpers in `/opt/firestream/scripts/libhelpersodoo.sh`
 (source: `scripts/helpers.sh`). One archive holds everything a restore needs:
@@ -471,19 +699,23 @@ The image ships dump and restore helpers in `/opt/firestream/scripts/libhelperso
 | Member          | Content                                                             |
 |-----------------|---------------------------------------------------------------------|
 | `manifest.json` | database name, Odoo version, PostgreSQL version, installed modules  |
-| `dump.sql`      | `pg_dump --format=plain --clean --if-exists --no-owner` of the DB   |
+| `db.dump`       | `pg_dump --format=custom --no-owner --no-privileges` of the DB      |
 | `filestore/`    | the attachment store from `$ODOO_DATA_DIR/filestore/<db>`          |
 
-These are the same members as Odoo's own zip backup, so the archive can be
-repackaged for the web database manager. The helpers read the `ODOO_DATABASE_*`
-connection env (including `ODOO_DATABASE_PASSWORD_FILE`) and `ODOO_DATA_DIR`.
+The helpers read the `ODOO_DATABASE_*` connection env (including
+`ODOO_DATABASE_PASSWORD_FILE`) and `ODOO_DATA_DIR`.
 
-| Function                   | Purpose                                                         |
-|----------------------------|-----------------------------------------------------------------|
-| `odoo_dump <dir>`          | Write `<dir>/odoo-<db>-<timestamp>.tar.gz`; prints the path last |
-| `odoo_restore <archive>`   | Replace the database and the filestore from an archive          |
-| `odoo_backup_s3`           | `odoo_dump` + upload to `s3://$S3_BACKUP_BUCKET/$S3_BACKUP_PREFIX/` |
-| `odoo_restore_s3`          | Download `$S3_BACKUP_KEY` and `odoo_restore` it                  |
+| Function                      | Purpose                                                         |
+|-------------------------------|-----------------------------------------------------------------|
+| `odoo_dump <dir>`             | Write `<dir>/odoo-<db>-<timestamp>.tar.gz`; prints the path last |
+| `odoo_restore <archive> [db]` | Replace the database and the filestore from an archive          |
+| `odoo_backup_s3`              | `odoo_dump` + upload to `s3://$S3_BACKUP_BUCKET/$S3_BACKUP_PREFIX/` |
+| `odoo_restore_s3`             | Download `$S3_BACKUP_KEY` and `odoo_restore` it                  |
+
+`odoo_restore` runs `firestream-odoo-restore --archive <archive> --replace
+--keep-storage-roots`. A failure leaves the database as it was, and the old
+database stays as `<db>_before_<timestamp>`. An archive with the older
+`dump.sql` member still restores, through `psql`.
 
 `odoo_restore` refuses to run while an `odoo-bin` process is alive, because a
 live restore corrupts sessions and asset bundles. Stop Odoo first, or set
@@ -514,8 +746,28 @@ docker compose -p firestream-odoo start odoo
 #### Kubernetes
 
 The chart renders a backup CronJob when `backup.enabled=true` (see
-`src/charts/firestream/odoo/nix/options/backup.nix`; the target defaults to the
-in-cluster SeaweedFS store under `odoo-backups/`). The CLI drives it:
+`src/charts/firestream/odoo/nix/options/backup.nix`).
+
+| Option                       | Default        | Use                                                   |
+|------------------------------|----------------|-------------------------------------------------------|
+| `backup.target`              | `s3`           | `s3`: one archive (`odoo_backup_s3`). `gcs`: one set (`firestream-odoo-backup --tag nightly`). |
+| `backup.gcs.bucket`          | none           | The GCS bucket. Required for `gcs`.                   |
+| `backup.gcs.prefix`          | `odoo-backups` | The prefix in the bucket.                             |
+| `backup.environment`         | none           | The environment name in the set path. Required for `gcs`: blue and green write to one folder. |
+| `backup.filestoreMode`       | `archive`      | `archive` or `objectManifest`. `s3` allows `archive` only. `objectManifest` does not mount the data volume. |
+| `backup.serviceAccountName`  | none           | The Kubernetes service account with the Workload Identity binding. |
+| `backup.schedule`            | `@daily`       | The cron schedule.                                    |
+| `backup.timeZone`            | none (UTC)     | The CronJob `spec.timeZone` (Kubernetes 1.27 or later). |
+| `backup.startingDeadlineSeconds` | `3600`     | Skip a run that cannot start within this time.        |
+| `backup.activeDeadlineSeconds`   | `21600`    | Stop a Job that runs longer.                          |
+
+The pod does not mount a service account token
+(`automountServiceAccountToken: false`); Workload Identity on GKE does not
+need it. The CronJob sets `FIRESTREAM_ODOO_IMAGE` and, from `image.digest`,
+`FIRESTREAM_ODOO_IMAGE_DIGEST`.
+
+The `s3` target defaults to the in-cluster SeaweedFS store under
+`odoo-backups/`. The CLI drives it:
 
 ```console
 firestream helm backup odoo
@@ -526,7 +778,8 @@ firestream helm restore odoo --from odoo-backups/odoo-firestream_odoo-<timestamp
 runs a one-shot Job that inherits the CronJob's pod spec (image, PVC, database
 Secret, S3 credentials) and calls `odoo_restore_s3`, then scales the Deployment
 back and waits for the rollout. The Deployment is scaled back even when the Job
-fails.
+fails. `firestream helm restore` works with the `s3` target only. For a `gcs`
+set, run `firestream-odoo-restore` in a Job.
 
 ### Upgrade this image
 

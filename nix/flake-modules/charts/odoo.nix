@@ -84,8 +84,9 @@
         config.odoo.postgresql.postgresqlSharedPreloadLibraries = "";
       };
 
-      # Backup overlay: CronJob that dumps the database AND the filestore into
-      # one archive and uploads it to S3. The odoo chart has no backup
+      # Backup overlay: CronJob that dumps the database AND the filestore. The
+      # `s3` target uploads one archive (`odoo_backup_s3`); the `gcs` target
+      # writes one backup set (`firestream-odoo-backup`). The odoo chart has no backup
       # template, so the CronJob is appended to `extraDeploy` as a templated
       # YAML string: `templates/extra-list.yaml` passes each item through
       # `common.tplvalues.render`, so the `{{ ... }}` below are evaluated by
@@ -112,6 +113,11 @@
           # labels would block that wait until its TTL.
           cronJob = ''
             {{- if .Values.backup.enabled }}
+            {{- $target := .Values.backup.target | default "s3" }}
+            {{- $objectManifest := eq (.Values.backup.filestoreMode | default "archive") "objectManifest" }}
+            {{- if and (eq $target "s3") (ne (.Values.backup.filestoreMode | default "archive") "archive") }}
+            {{- fail "backup.filestoreMode objectManifest needs backup.target gcs" }}
+            {{- end }}
             apiVersion: batch/v1
             kind: CronJob
             metadata:
@@ -121,12 +127,17 @@
                 app.kubernetes.io/component: odoodump
             spec:
               schedule: {{ .Values.backup.schedule | quote }}
+              {{- if .Values.backup.timeZone }}
+              timeZone: {{ .Values.backup.timeZone | quote }}
+              {{- end }}
+              startingDeadlineSeconds: {{ .Values.backup.startingDeadlineSeconds | default 3600 }}
               concurrencyPolicy: Forbid
               successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
               failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
               jobTemplate:
                 spec:
                   backoffLimit: 0
+                  activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds | default 21600 }}
                   {{- if .Values.backup.ttlSecondsAfterFinished }}
                   ttlSecondsAfterFinished: {{ .Values.backup.ttlSecondsAfterFinished }}
                   {{- end }}
@@ -137,6 +148,10 @@
                         app.kubernetes.io/managed-by: firestream
                     spec:
                       restartPolicy: Never
+                      {{- if .Values.backup.serviceAccountName }}
+                      serviceAccountName: {{ .Values.backup.serviceAccountName | quote }}
+                      {{- end }}
+                      automountServiceAccountToken: false
                       {{- include "odoo.imagePullSecrets" . | nindent 10 }}
                       {{- if .Values.podSecurityContext.enabled }}
                       securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.podSecurityContext "context" $) | nindent 12 }}
@@ -148,6 +163,10 @@
                           {{- if .Values.containerSecurityContext.enabled }}
                           securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.containerSecurityContext "context" $) | nindent 16 }}
                           {{- end }}
+                          {{- if eq $target "gcs" }}
+                          command:
+                            - firestream-odoo-backup
+                          {{- else }}
                           command:
                             - bash
                             - -c
@@ -155,7 +174,22 @@
                               set -uo pipefail
                               source /opt/firestream/scripts/libhelpersodoo.sh
                               odoo_backup_s3
+                          {{- end }}
                           env:
+                            {{- if eq $target "gcs" }}
+                            - name: FIRESTREAM_BACKUP_TARGET
+                              value: gcs
+                            - name: FIRESTREAM_BACKUP_BUCKET
+                              value: {{ required "backup.gcs.bucket is required when backup.target is gcs" .Values.backup.gcs.bucket | quote }}
+                            - name: FIRESTREAM_BACKUP_PREFIX
+                              value: {{ .Values.backup.gcs.prefix | default "odoo-backups" | quote }}
+                            - name: FIRESTREAM_BACKUP_ENV
+                              value: {{ required "backup.environment is required when backup.target is gcs" .Values.backup.environment | quote }}
+                            - name: FIRESTREAM_BACKUP_FILESTORE_MODE
+                              value: {{ .Values.backup.filestoreMode | default "archive" | quote }}
+                            - name: FIRESTREAM_BACKUP_TAG
+                              value: nightly
+                            {{- else }}
                             {{- if .Values.backup.s3.existingSecret }}
                             - name: AWS_ACCESS_KEY_ID
                               valueFrom:
@@ -183,6 +217,11 @@
                               value: {{ .Values.backup.s3.prefix | quote }}
                             - name: S3_ADDRESSING_STYLE
                               value: {{ .Values.backup.s3.addressingStyle | default "" | quote }}
+                            {{- end }}
+                            - name: FIRESTREAM_ODOO_IMAGE
+                              value: {{ include "odoo.image" . | quote }}
+                            - name: FIRESTREAM_ODOO_IMAGE_DIGEST
+                              value: {{ .Values.image.digest | default "" | quote }}
                             - name: HOME
                               value: /tmp
                             - name: TMPDIR
@@ -206,14 +245,17 @@
                           resources: {{- toYaml .Values.backup.resources | nindent 16 }}
                           {{- end }}
                           volumeMounts:
+                            {{- if not $objectManifest }}
                             - name: odoo-data
                               mountPath: /firestream/odoo
                               {{- if .Values.persistence.subPath }}
                               subPath: {{ .Values.persistence.subPath }}
                               {{- end }}
+                            {{- end }}
                             - name: tmp
                               mountPath: /tmp
                       volumes:
+                        {{- if not $objectManifest }}
                         - name: odoo-data
                           {{- if .Values.persistence.enabled }}
                           persistentVolumeClaim:
@@ -221,6 +263,7 @@
                           {{- else }}
                           emptyDir: {}
                           {{- end }}
+                        {{- end }}
                         - name: tmp
                           emptyDir: {}
             {{- end }}

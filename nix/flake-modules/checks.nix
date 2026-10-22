@@ -74,11 +74,109 @@
             exit 1
           ''
         );
+
+      # NOTE: a release that relies on `moduleSync = "release"` never updates
+      # the database at boot. If the option stops reaching the image env, or
+      # the sync command stops starting, pods serve new code on an old schema
+      # and nothing fails until a user hits the missing column.
+      odooModuleSync =
+        let
+          img = config.firestreamImages.odoo-18;
+          stock = img.eval ({ ... }: { config = { }; });
+          release = img.eval ({ ... }: {
+            config.odoo.moduleSync = "release";
+            config.odoo.firstInitCalls = [ "ir.attachment:_platform_storage_migrate" ];
+          });
+          noExtras = img.eval ({ ... }: { config.odoo.extraPythonPackages = _: [ ]; });
+          extras = img.eval ({ ... }: {
+            config.odoo.extraPythonPackages = ps: [ ps.gcsfs ps.fsspec ps.python-slugify ];
+          });
+          python = stock.module.pythonEnv;
+          results = {
+            defaultIsBoot = stock.env.ODOO_MODULE_SYNC == "boot";
+            releaseReachesEnv = release.env.ODOO_MODULE_SYNC == "release";
+            firstInitCallsReachEnv = release.env.ODOO_FIRST_INIT_CALLS == "ir.attachment:_platform_storage_migrate";
+            noFirstInitCallsByDefault = stock.env.ODOO_FIRST_INIT_CALLS == "";
+            readinessHasTimeout = lib.hasInfix "--max-time" stock.health.readinessCmd;
+            emptyExtrasInert = noExtras.dockerImage.drvPath == stock.dockerImage.drvPath;
+            extrasChangeImage = extras.dockerImage.drvPath != stock.dockerImage.drvPath;
+            extrasKeepVenvFirst = lib.hasPrefix stock.module.pythonSitePackages extras.module.pythonSitePackages;
+          };
+          failed = lib.filterAttrs (_: ok: !ok) results;
+          tools = ../../src/containers/firestream/odoo/scripts;
+        in
+        pkgs.runCommand "firestream-odoo-module-sync" { } (
+          if failed != { } then ''
+            echo "FAIL: odoo module sync: ${lib.concatStringsSep ", " (builtins.attrNames failed)}"
+            exit 1
+          '' else ''
+            set -euo pipefail
+            ${pkgs.bash}/bin/bash -n ${tools}/init.sh
+            ${python}/bin/python -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${tools}/odoo_tools.py
+            ${python}/bin/python ${tools}/odoo_tools.py sync --help | grep -q -- --dry-run
+            ${python}/bin/python ${tools}/odoo_tools.py sync --help | grep -q -- --save-checksums
+            ${python}/bin/python ${tools}/odoo_tools.py call --help | grep -q -- --kwargs
+            ${python}/bin/python ${tools}/odoo_tools.py backup --help | grep -q -- --filestore-mode
+            ${python}/bin/python ${tools}/odoo_tools.py restore --help | grep -q -- --neutralize
+            ${python}/bin/python ${tools}/odoo_tools.py backups --help | grep -q -- '{list}'
+            PYTHONPATH=${extras.module.pythonSitePackages} ${python}/bin/python -c \
+              'import fsspec, gcsfs, slugify; assert fsspec.__version__ >= "2025.3.0", fsspec.__version__'
+            echo "PASS: odoo module sync (${toString (builtins.length (builtins.attrNames results))} assertions, tools, extra imports)"
+            touch $out
+          ''
+        );
+
+      # NOTE: a backup that cannot restore is found on the day of the loss.
+      # This check writes sets into a real PostgreSQL server, a local
+      # directory and fake-gcs-server, and restores each one, so the format,
+      # the verification and the refusals run on every build.
+      odooBackup =
+        let
+          python = pkgs.python312.withPackages (ps: [ ps.psycopg2 ps.fsspec ps.gcsfs ps.google-cloud-storage ]);
+          odooDir = ../../src/containers/firestream/odoo;
+        in
+        pkgs.runCommand "firestream-odoo-backup"
+          { nativeBuildInputs = [ pkgs.postgresql pkgs.fake-gcs-server python ]; } ''
+          set -euo pipefail
+          work="$TMPDIR/work"
+          mkdir -p "$work/tests"
+          export PGDATA="$work/pg"
+          initdb -U postgres --auth=trust -D "$PGDATA" > /dev/null
+          # NOTE: a small lock table, so that one test proves the restore
+          # works where a single-transaction pg_restore runs out of locks.
+          pg_ctl -D "$PGDATA" -w -t 300 start > /dev/null \
+            -o "-k $work -c listen_addresses= -p 5432 -c max_locks_per_transaction=10 -c max_connections=20"
+          psql -h "$work" -U postgres -d postgres -qc "CREATE ROLE odoo LOGIN CREATEDB"
+
+          # NOTE: gcsfs refuses a timestamp that does not end in Z, and
+          # fake-gcs-server writes the local time zone.
+          TZ=UTC fake-gcs-server -scheme http -host 127.0.0.1 -port 4443 -backend memory \
+            -public-host 127.0.0.1:4443 -external-url http://127.0.0.1:4443 -log-level error \
+            > "$work/gcs.log" 2>&1 &
+          gcs_pid=$!
+          trap 'kill $gcs_pid 2>/dev/null || true; pg_ctl -D "$PGDATA" -m immediate stop > /dev/null' EXIT
+          for _ in $(seq 100); do
+            python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4443/storage/v1/b")' \
+              2> /dev/null && break
+            sleep 0.1
+          done
+
+          export ODOO_DATABASE_HOST="$work" ODOO_DATABASE_PORT_NUMBER=5432 ODOO_DATABASE_USER=odoo
+          export TEST_WORK="$work/tests" TOOLS=${odooDir}/scripts HOME="$TMPDIR"
+          export STORAGE_EMULATOR_HOST=http://127.0.0.1:4443 FSSPEC_GCS_TOKEN=anon
+          # NOTE: without it, google-auth probes the GCE metadata server, and
+          # each probe waits for its timeout in the sandbox.
+          export NO_GCE_CHECK=True
+          python ${odooDir}/tests/test_odoo_backup.py
+          touch "$out"
+        '';
     in
     {
       checks = lib.optionalAttrs isLinux {
         firestream-tests = tests.all;
+        firestream-odoo-backup = odooBackup;
         firestream-python-workspace-seam = pythonWorkspaceSeam;
+        firestream-odoo-module-sync = odooModuleSync;
 
         # Individual test modules (for granular testing)
         firestream-log-tests = tests.logTests;

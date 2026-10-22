@@ -79,6 +79,7 @@ in
     validateFn ? "",
     configFn ? "",
     initFn ? "",
+    initEveryBoot ? false,
     runCmd ? "",
 
     # Per-container helpers emitted at top-level of libhelpers<name>.sh.
@@ -133,7 +134,7 @@ in
     # Create the application module
     appModule = mkAppModule {
       inherit name version envVars envVarsWithSecrets paths user;
-      inherit validateFn configFn initFn runCmd;
+      inherit validateFn configFn initFn initEveryBoot runCmd;
       inherit prepopulateFn prepopulateFiles prepopulateDirs runtimeDirs;
       inherit activateFn enableStateTracking perContainerHelpers;
       extraDeps = extraDeps ++ runtimeBinDeps;

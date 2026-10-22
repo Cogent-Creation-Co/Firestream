@@ -65,6 +65,7 @@
     validateFn ? "",
     configFn ? "",
     initFn ? "",
+    initEveryBoot ? false,
     runCmd ? "",
 
     # Per-container helpers emitted at top-level of libhelpers<name>.sh.
@@ -175,7 +176,7 @@
     containerModule = mkContainerModule {
       inherit name version envVars envVarsWithSecrets paths user;
       inherit imageName imageTag;
-      inherit validateFn configFn runCmd;
+      inherit validateFn configFn initEveryBoot runCmd;
       initFn = pythonInitFn;
 
       # Pass through two-phase lifecycle parameters

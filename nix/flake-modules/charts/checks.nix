@@ -806,5 +806,203 @@
         mkdir -p "$out"
         cp fidelity.diff "$out/" 2>/dev/null || true
       '';
+
+      # NOTE: the odoo_base addon `cp_auth_google` reads the files through
+      # FIRESTREAM_ODOO_MANAGED_DIR, outside this repo. This check is the only
+      # guard on that contract. It renders through the consumer `eval` API so
+      # it also proves the typed Nix option reaches the chart.
+      checks.odoo-managed-settings =
+        let
+          odooApi = config.firestreamChartImages.odoo;
+          renderWith = values: (odooApi.eval ({ ... }: { config.odoo = values; })).chartBundle;
+          enabled = renderWith {
+            managedSettings.existingSecret = "x";
+            persistence.enabled = true;
+            volumePermissions.enabled = true;
+          };
+          movedPath = renderWith {
+            managedSettings = { existingSecret = "x"; mountPath = "/run/firestream/odoo/managed"; };
+          };
+        in
+        pkgs.runCommand "odoo-managed-settings"
+          { nativeBuildInputs = [ pkgs.yq-go ]; } ''
+          set -euo pipefail
+
+          fail() { echo "ODOO MANAGED SETTINGS FAILURE: $*"; exit 1; }
+
+          deployment() {
+            yq 'select(.kind == "Deployment" and .metadata.name == "odoo")' "$1/rendered.yaml"
+          }
+
+          expect() {
+            local file="$1" query="$2" want="$3" got
+            got="$(yq "$query" "$file")"
+            [ "$got" = "$want" ] || fail "$query = '$got', want '$want'"
+          }
+
+          check_enabled() {
+            local bundle="$1" path="$2"
+            deployment "$bundle" > dep.yaml
+            [ -s dep.yaml ] || fail "no odoo Deployment in $bundle/rendered.yaml"
+
+            expect dep.yaml '.spec.template.spec.volumes[] | select(.name == "managed-settings") | .secret.secretName' x
+            expect dep.yaml '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "managed-settings") | .mountPath' "$path"
+            expect dep.yaml '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "managed-settings") | .readOnly' true
+            expect dep.yaml '.spec.template.spec.containers[0].env[] | select(.name == "FIRESTREAM_ODOO_MANAGED_DIR") | .value' "$path"
+            expect dep.yaml '[.spec.template.spec.initContainers[]?.volumeMounts[]? | select(.name == "managed-settings")] | length' 0
+            expect dep.yaml '[.spec.template.spec.initContainers[]?.env[]? | select(.name == "FIRESTREAM_ODOO_MANAGED_DIR")] | length' 0
+
+            grep -q 'defaultMode: 0440' dep.yaml || fail "managed-settings volume is not defaultMode 0440"
+            [ "$(grep -c 'FIRESTREAM_ODOO_MANAGED_DIR' "$bundle/rendered.yaml")" = 1 ] \
+              || fail "FIRESTREAM_ODOO_MANAGED_DIR appears outside the main Odoo container"
+            [ "$(grep -c 'name: managed-settings' "$bundle/rendered.yaml")" = 2 ] \
+              || fail "managed-settings is referenced outside the odoo Deployment volume and mount"
+          }
+
+          check_enabled ${enabled} /opt/firestream/odoo/managed
+          expect ${enabled}/values.yaml '.managedSettings.existingSecret' x
+          expect ${enabled}/values.yaml '.managedSettings | has("mountPath")' false
+          expect dep.yaml '[.spec.template.spec.initContainers[] | select(.name == "volume-permissions")] | length' 1
+
+          check_enabled ${movedPath} /run/firestream/odoo/managed
+
+          for marker in managed-settings managedSettings FIRESTREAM_ODOO_MANAGED_DIR; do
+            if grep -q "$marker" ${odooApi.chartBundle}/rendered.yaml ${odooApi.chartBundle}/values.yaml; then
+              fail "the default render or values.yaml contains $marker"
+            fi
+          done
+
+          echo "odoo managedSettings OK: volume, read-only mount and env var only when existingSecret is set"
+          touch "$out"
+        '';
+
+      # NOTE: readiness is the only thing that keeps traffic away from a pod
+      # whose caches are still cold. This check proves that both probes reach
+      # healthd's /readyz by default, and that a consumer can turn it off.
+      checks.odoo-healthd-probes =
+        let
+          odooApi = config.firestreamChartImages.odoo;
+          renderWith = values: (odooApi.eval ({ ... }: { config.odoo = values; })).chartBundle;
+          healthd = renderWith { startupProbe.enabled = true; };
+          plain = renderWith { probesUseHealthd = false; startupProbe.enabled = true; };
+        in
+        pkgs.runCommand "odoo-healthd-probes"
+          { nativeBuildInputs = [ pkgs.yq-go ]; } ''
+          set -euo pipefail
+
+          fail() { echo "ODOO HEALTHD PROBES FAILURE: $*"; exit 1; }
+
+          expect() {
+            local bundle="$1" query="$2" want="$3" got
+            got="$(yq "select(.kind == \"Deployment\" and .metadata.name == \"odoo\") | .spec.template.spec.containers[0]$query" "$bundle/rendered.yaml")"
+            [ "$got" = "$want" ] || fail "$query = '$got', want '$want'"
+          }
+
+          for probe in readinessProbe startupProbe; do
+            expect ${healthd} ".$probe.httpGet.path" /readyz
+            expect ${healthd} ".$probe.httpGet.port" 9180
+            expect ${plain} ".$probe.httpGet.path" /web/health
+            expect ${plain} ".$probe.httpGet.port" http
+          done
+          expect ${healthd} '.livenessProbe.tcpSocket.port' http
+
+          echo "odoo healthd probes OK: readiness and startup on /readyz, liveness on the http port"
+          touch "$out"
+        '';
+
+      # NOTE: the backup CronJob is a template string in extraDeploy, so Helm
+      # is the only thing that parses it. A typo there renders nothing until
+      # the night of the first backup. This check renders both targets and
+      # the two refusals.
+      checks.odoo-backup-render =
+        let
+          odooApi = config.firestreamChartImages.odoo;
+          gcs = (odooApi.eval ({ ... }: {
+            config.odoo.backup = {
+              enabled = true;
+              target = "gcs";
+              environment = "production";
+              filestoreMode = "objectManifest";
+              serviceAccountName = "odoo-backup";
+              timeZone = "America/Los_Angeles";
+              gcs.bucket = "acme-odoo-backups";
+            };
+            config.odoo.image.digest = "sha256:0123";
+          })).chartBundle;
+        in
+        pkgs.runCommand "odoo-backup-render"
+          { nativeBuildInputs = [ pkgs.kubernetes-helm pkgs.yq-go ]; } ''
+          set -euo pipefail
+          export HOME="$TMPDIR"
+
+          fail() { echo "ODOO BACKUP RENDER FAILURE: $*"; exit 1; }
+          bundle=${odooApi.chartBundle}
+
+          expect() {
+            local file="$1" query="$2" want="$3" got
+            got="$(yq "select(.kind == \"CronJob\") | .spec.jobTemplate.spec.template.spec$query" "$file")"
+            [ "$got" = "$want" ] || fail "$file: $query = '$got', want '$want'"
+          }
+          env_of() { echo ".containers[0].env[] | select(.name == \"$1\") | .value"; }
+
+          [ "$(yq 'select(.kind == "CronJob") | .metadata.name' "$bundle/rendered.yaml")" = "" ] \
+            || fail "the default render has a backup CronJob"
+
+          helm template odoo "$bundle/chart" -f "$bundle/values.yaml" --set backup.enabled=true > s3.yaml
+          expect s3.yaml '.containers[0].command[2]' "$(printf 'set -uo pipefail\nsource /opt/firestream/scripts/libhelpersodoo.sh\nodoo_backup_s3\n')"
+          expect s3.yaml "$(env_of S3_BACKUP_BUCKET)" firestream
+          expect s3.yaml "$(env_of FIRESTREAM_BACKUP_TARGET)" ""
+          expect s3.yaml '.serviceAccountName' null
+          expect s3.yaml '.volumes | map(select(.name == "odoo-data")) | length' 1
+          [ "$(yq 'select(.kind == "CronJob") | .spec.timeZone' s3.yaml)" = null ] || fail "the default has a timeZone"
+          [ -n "$(yq "select(.kind == \"CronJob\") | .spec.jobTemplate.spec.template.spec$(env_of FIRESTREAM_ODOO_IMAGE)" s3.yaml)" ] \
+            || fail "the s3 CronJob has no FIRESTREAM_ODOO_IMAGE"
+
+          cp ${gcs}/rendered.yaml gcs.yaml
+          expect gcs.yaml '.containers[0].command[0]' firestream-odoo-backup
+          expect gcs.yaml '.automountServiceAccountToken' false
+          expect gcs.yaml '.volumes | map(select(.name == "odoo-data")) | length' 0
+          expect gcs.yaml '.containers[0].volumeMounts | map(select(.name == "odoo-data")) | length' 0
+          expect gcs.yaml "$(env_of FIRESTREAM_ODOO_IMAGE_DIGEST)" sha256:0123
+          [ "$(yq 'select(.kind == "CronJob") | .spec.timeZone' gcs.yaml)" = America/Los_Angeles ] || fail "no timeZone"
+          [ "$(yq 'select(.kind == "CronJob") | .spec.startingDeadlineSeconds' gcs.yaml)" = 3600 ] || fail "no startingDeadlineSeconds"
+          [ "$(yq 'select(.kind == "CronJob") | .spec.jobTemplate.spec.activeDeadlineSeconds' gcs.yaml)" = 21600 ] \
+            || fail "no activeDeadlineSeconds"
+          expect gcs.yaml '.serviceAccountName' odoo-backup
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_TARGET)" gcs
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_BUCKET)" acme-odoo-backups
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_PREFIX)" odoo-backups
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_ENV)" production
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_FILESTORE_MODE)" objectManifest
+          expect gcs.yaml "$(env_of FIRESTREAM_BACKUP_TAG)" nightly
+          expect gcs.yaml '.containers[0].env | map(select(.name == "AWS_ACCESS_KEY_ID" or .name == "S3_BACKUP_BUCKET")) | length' 0
+          expect gcs.yaml "$(env_of ODOO_DATABASE_NAME)" "$(yq "select(.kind == \"CronJob\") | .spec.jobTemplate.spec.template.spec$(env_of ODOO_DATABASE_NAME)" s3.yaml)"
+
+          helm template odoo "$bundle/chart" -f "$bundle/values.yaml" --set backup.enabled=true \
+            --set backup.target=gcs --set backup.gcs.bucket=b --set backup.environment=staging > archive.yaml
+          expect archive.yaml "$(env_of FIRESTREAM_BACKUP_FILESTORE_MODE)" archive
+          expect archive.yaml '.volumes | map(select(.name == "odoo-data")) | length' 1
+
+          if helm template odoo "$bundle/chart" -f "$bundle/values.yaml" --set backup.enabled=true \
+              --set backup.target=gcs --set backup.gcs.bucket=b > /dev/null 2> noenv.err; then
+            fail "the gcs target rendered without an environment"
+          fi
+          grep -q 'backup.environment is required' noenv.err || fail "no environment message: $(cat noenv.err)"
+
+          if helm template odoo "$bundle/chart" -f "$bundle/values.yaml" --set backup.enabled=true \
+              --set backup.target=gcs --set backup.environment=e > /dev/null 2> nobucket.err; then
+            fail "the gcs target rendered without a bucket"
+          fi
+          grep -q 'backup.gcs.bucket is required' nobucket.err || fail "no bucket message: $(cat nobucket.err)"
+
+          if helm template odoo "$bundle/chart" -f "$bundle/values.yaml" --set backup.enabled=true \
+              --set backup.filestoreMode=objectManifest > /dev/null 2> s3manifest.err; then
+            fail "the s3 target rendered with objectManifest"
+          fi
+          grep -q 'objectManifest needs backup.target gcs' s3manifest.err || fail "no mode message: $(cat s3manifest.err)"
+
+          echo "odoo backup render OK: s3 and gcs CronJobs, and the three refusals"
+          touch "$out"
+        '';
     };
 }

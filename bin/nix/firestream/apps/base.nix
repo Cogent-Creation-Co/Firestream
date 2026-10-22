@@ -92,6 +92,10 @@ in
     validateFn ? "",               # Validation logic (receives print_validation_error helper)
     configFn ? "",                 # Configuration generation logic
     initFn ? "",                   # Initialization logic (DB setup, first-run tasks, etc.)
+    # NOTE: an initFn that keeps its own first-run marker and has a branch
+    # for later boots (odoo installs new modules into an existing database)
+    # needs to run at every boot. The default runs it on the first boot only.
+    initEveryBoot ? false,
 
     # Per-container helper-function definitions (emitted at top level, NOT nested
     # inside <name>_configure/<name>_initialize/etc.). This is the seam Bitnami
@@ -441,8 +445,8 @@ TEMPLATE_EOF
       ${name}_activate
 
       # 6. Check for first run and initialize if needed
-      if ! is_app_initialized "${name}"; then
-        info "First run detected - running initialization..."
+      if ${if initEveryBoot then "true" else "false"} || ! is_app_initialized "${name}"; then
+        info "Running initialization..."
         ${name}_initialize
         mark_app_initialized "${name}"
         info "Initialization complete"

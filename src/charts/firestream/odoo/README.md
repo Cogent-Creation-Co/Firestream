@@ -113,6 +113,33 @@ sidecars:
 
 Similarly, you can add extra init containers using the `initContainers` parameter.
 
+### Managed settings
+
+Use `managedSettings` to give Odoo platform settings from outside Odoo. Examples are OAuth configuration and the API admin password. An Odoo addon reads the files when Odoo starts.
+
+1. Create a Secret in the release namespace. Each key in the Secret becomes one file.
+2. Set `managedSettings.existingSecret` to the name of the Secret.
+3. Optional: set `managedSettings.mountPath`. The default is `/opt/firestream/odoo/managed`.
+
+The chart then does these steps:
+
+- It adds the `managed-settings` volume from the Secret with `defaultMode: 0440`.
+- It mounts the volume read-only at `managedSettings.mountPath` in the main Odoo container. Init containers, sidecars and the PostgreSQL subchart do not get the volume.
+- It sets `FIRESTREAM_ODOO_MANAGED_DIR` to `managedSettings.mountPath` in the main Odoo container.
+
+```yaml
+managedSettings:
+  existingSecret: odoo-managed-settings
+podAnnotations:
+  checksum/managed-settings: "<sha256 of the Secret data>"
+```
+
+The files have mode `0440`. The group is the pod `fsGroup`. If Odoo runs as a user other than root, set `podSecurityContext.fsGroup` to the Odoo group (`1001` in the Firestream images). If you do not, Odoo cannot read the files.
+
+The chart does not read the Secret, so it cannot calculate a checksum. Kubernetes does not restart Odoo when the Secret changes. To restart Odoo on a change, calculate a checksum of the Secret data in your release tool. Put it in `podAnnotations` as `checksum/managed-settings`. Do not put secret data in the chart values.
+
+When `managedSettings.existingSecret` is empty, the chart renders no volume, no mount and no environment variable.
+
 ### Setting Pod's affinity
 
 This chart allows you to set your custom affinity using the `affinity` parameter. Find more information about Pod's affinity in the [kubernetes documentation](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity).
@@ -120,6 +147,12 @@ This chart allows you to set your custom affinity using the `affinity` parameter
 As an alternative, you can use of the preset configurations for pod affinity, pod anti-affinity, and node affinity available at the [bitnami/common](https://github.com/bitnami/charts/tree/main/bitnami/common#affinities) chart. To do so, set the `podAffinityPreset`, `podAntiAffinityPreset`, or `nodeAffinityPreset` parameters.
 
 ### Backup and restore
+
+Firestream adds a backup CronJob, `backup.*`. The `s3` target writes one
+archive per run. The `gcs` target writes one backup set per run: `db.dump`,
+the filestore (`archive` or `objectManifest`) and `manifest.json`. See
+"Backup sets" in `src/containers/firestream/odoo/README.md` for the format,
+the restore command and the options.
 
 To back up and restore Helm chart deployments on Kubernetes, you need to back up the persistent volumes from the source deployment and attach them to a new deployment using [Velero](https://velero.io/), a Kubernetes backup/restore tool. Find the instructions for using Velero in [this guide](https://techdocs.broadcom.com/us/en/vmware-tanzu/application-catalog/tanzu-application-catalog/services/tac-doc/apps-tutorials-backup-restore-deployments-velero-index.html).
 
@@ -188,6 +221,8 @@ See the [Parameters](#parameters) section to configure the PVC or to disable per
 | `extraEnvVars`          | Array with extra environment variables to add to the Odoo container  | `[]`               |
 | `extraEnvVarsCM`        | Name of existing ConfigMap containing extra env vars                 | `""`               |
 | `extraEnvVarsSecret`    | Name of existing Secret containing extra env vars                    | `""`               |
+| `managedSettings.existingSecret` | Name of an existing Secret with the managed settings files (empty disables the mount) | `""` |
+| `managedSettings.mountPath` | Directory where the main Odoo container gets the managed settings files | `/opt/firestream/odoo/managed` |
 
 ### Odoo deployment parameters
 
