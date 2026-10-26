@@ -380,6 +380,7 @@
     in
     {
       checks = lib.optionalAttrs isLinux {
+        firestream-pnpm-lock-json = pnpmLockJson;
         firestream-tests = tests.all;
         firestream-odoo-backup = odooBackup;
         firestream-odoo-backup-tools = odooBackupTools;
