@@ -54,10 +54,5 @@
 
     # s3 (8333), master (9333), filer (8888), volume (8080), metrics (9324).
     exposedPorts = lib.mkDefault [ 8333 9333 8888 8080 9324 ];
-
-    # Distinct host-port offset (spacing 2000) so all canonical apps can run on
-    # docker simultaneously without colliding. seaweedfs=32000 (next free slot
-    # after jupyterhub=30000).
-    compose.hostPortOffset = lib.mkDefault 32000;
   };
 }

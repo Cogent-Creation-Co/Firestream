@@ -290,18 +290,6 @@ in
       projectName = "firestream-airflow";
       dependencies = [ "postgresql" "redis" ];
 
-      # +20000 host-port offset. Each of the 8 canonical apps gets a DISTINCT
-      # offset (spacing 2000) so all 8 can run simultaneously on docker without
-      # host-port collisions. airflow=20000 (lowest band). Container-side ports
-      # are unchanged, so service-to-service network references inside the
-      # compose project (e.g. AIRFLOW_DATABASE_HOST=postgresql:5432) still
-      # resolve normally.
-      #   postgresql 5432  -> host 25432
-      #   redis      6379  -> host 26379
-      #   api-server 8080  -> host 28080
-      #   healthd    9180  -> host 29180
-      hostPortOffset = 20000;
-
       # x-airflow-env: shared across every Airflow component (own image services).
       # All component services must agree on these secret keys.
       sharedEnv = {
@@ -336,10 +324,8 @@ in
             ALLOW_EMPTY_PASSWORD = "no";
           };
           # Publish on the host so the e2e harness (and humans) can probe the
-          # embedded postgres without docker exec. The compose hostPortOffset
-          # (+10000) rewrites this to 15432:5432 in the rendered YAML, avoiding
-          # collision with a standalone .#postgresql-up on 5432.
-          ports = [ "5432:5432" ];
+          # embedded postgres without docker exec.
+          ports = [ 5432 ];
           volumes = [ "postgresql_data:/firestream/postgresql" ];
           # Phase 4: query the in-image firestream-healthd /readyz endpoint
           # (port 9180 inside the compose network). The bash /dev/tcp pattern
@@ -362,8 +348,8 @@ in
         redis = {
           image = "@redis";
           env.ALLOW_EMPTY_PASSWORD = "yes";
-          # See postgresql above; +10000 offset -> 16379:6379.
-          ports = [ "6379:6379" ];
+          # Published for the same reason as postgresql above.
+          ports = [ 6379 ];
           volumes = [ "redis_data:/firestream/redis/data" ];
           # Phase 4: same /readyz bash /dev/tcp probe as postgresql. Redis
           # has no curl/wget but bashInteractive ships with every image.
@@ -403,12 +389,11 @@ in
           # api-server: bind to all interfaces and publish on the host.
           env.AIRFLOW_APISERVER_HOST = "0.0.0.0";
           # Phase 4: publish the api-server's in-image firestream-healthd
-          # port too. With hostPortOffset=10000 this maps to 19180:9180 on
-          # the host, which the e2e harness's HealthEndpoint probe targets.
+          # port too; the e2e harness's HealthEndpoint probe targets it.
           # (Default-branch stacks get this automatically via
           # `effectiveExposedPorts`; airflow declares its own services so
           # it must enumerate 9180 here too.)
-          ports = [ "8090:8080" "9180:9180" ];
+          ports = [ 8080 9180 ];
           dependsOn = [ "postgresql" "redis" ];
           # Phase 4: explicit /readyz healthcheck on the api-server. The
           # rest of the airflow components share the same image and so each

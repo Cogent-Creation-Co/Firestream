@@ -107,8 +107,10 @@ in firestream.mkContainerModule {
   # master + volume + filer + s3 in one process, S3 on 8333, bound to all
   # interfaces. The Helm chart overrides this via its own `command:` block, so
   # this default only governs direct `docker run` / compose use.
+  # WARNING: the entrypoint already runs `exec ${runCmd}`. A leading `exec`
+  # here makes the shell run `exec exec weed`, which exits 127.
   runCmd = ''
-    exec weed server -dir=/firestream/seaweedfs/data -master -volume -filer -s3 -ip.bind=0.0.0.0
+    weed server -dir=/firestream/seaweedfs/data -master -volume -filer -s3 -ip.bind=0.0.0.0
   '';
 
   inherit systemDeps runtimeBinDeps;

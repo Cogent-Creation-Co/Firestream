@@ -55,7 +55,7 @@ let
   # (`airflow-3`, `postgresql-16`, `odoo-15`…) are aliases onto the same
   # derivations, so building them too would only duplicate work.
   #
-  # 11, not the 10 the plan estimated: `os-shell` is a real container package
+  # `os-shell` is a real container package
   # (nix/flake-modules/containers/os-shell.nix) and is included.
   containerPackages = [
     "airflow"
@@ -68,6 +68,16 @@ let
     "redis"
     "seaweedfs"
     "spark"
+    "supabase-auth"
+    "supabase-envoy"
+    "supabase-imgproxy"
+    "supabase-postgres"
+    "supabase-postgres-meta"
+    "supabase-postgrest"
+    "supabase-realtime"
+    "supabase-storage"
+    "supabase-studio"
+    "supabase-supavisor"
     "superset"
   ];
 
