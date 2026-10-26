@@ -85,6 +85,12 @@ in {
     exposedPorts ? [],
     volumes ? [],
 
+    # Image naming and in-image health service, forwarded to
+    # mkContainerModule. The defaults equal mkContainerModule's own.
+    imageName ? "firestream-${name}",
+    imageTag ? version,
+    health ? { enable = false; port = 9180; readinessCmd = null; },
+
     # Build-time (prepopulate phase)
     prepopulateFn ? "",
     prepopulateFiles ? {},
@@ -317,6 +323,7 @@ in {
 
       dockerConfig = nodeDockerConfig;
       inherit exposedPorts volumes;
+      inherit imageName imageTag health;
 
       entrypointWrapper = nodeEntrypointWrapper;
 

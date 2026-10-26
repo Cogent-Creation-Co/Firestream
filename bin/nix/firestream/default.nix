@@ -13,7 +13,7 @@ let
 
   # Import custom packages
   packages = import ./packages {
-    inherit pkgs lib;
+    inherit pkgs lib fenix system;
     mkRustPackage = rustModule.mkRustPackage;
   };
   waitForPortPkg = packages.wait-for-port;
@@ -85,6 +85,10 @@ let
     inherit pkgs lib;
     mkContainerModule = containerBase.mkContainerModule;
   };
+  containerBeam = import ./containers/beam.nix {
+    inherit pkgs lib;
+    mkContainerModule = containerBase.mkContainerModule;
+  };
 
   # Import Python workspace factory (only if Python inputs provided)
   # This provides mkPythonWorkspaceContainer which combines uv2nix with mkPythonContainerModule
@@ -115,6 +119,7 @@ let
     mkPythonContainerModule = containerPython.mkPythonContainerModule;
     mkJavaContainerModule = containerJava.mkJavaContainerModule;
     mkNodeContainerModule = containerNode.mkNodeContainerModule;
+    mkBeamContainerModule = containerBeam.mkBeamContainerModule;
   };
 
   # Import Node.js module (development environment)
@@ -135,6 +140,11 @@ in {
   # Custom packages built from source
   # Usage: firestream.packages.wait-for-port
   inherit packages;
+
+  # Upstream Supabase source pins shared by the Supabase images
+  # Usage: firestream.supabase.sources.postgres
+  supabase = import ./supabase { inherit pkgs lib; };
+
   inherit waitForPortPkg;
   inherit firestreamHealthdPkg;
 
@@ -170,6 +180,7 @@ in {
   mkPythonContainerModule = containerModules.mkPythonContainerModule;
   mkJavaContainerModule = containerModules.mkJavaContainerModule;
   mkNodeContainerModule = containerModules.mkNodeContainerModule;
+  mkBeamContainerModule = containerModules.mkBeamContainerModule;
 
   # Python workspace container factory (requires Python packaging inputs)
   # Usage: firestream.mkPythonWorkspaceContainer { workspacePath = ./airflow; name = "airflow"; ... }
@@ -189,6 +200,10 @@ in {
   # Node.js package builder
   # Usage: firestream.mkNodePackage { pname = "my-app"; src = ./.; ... }
   mkNodePackage = nodeBuilder.mkNodePackage;
+
+  # Elixir release builder
+  # Usage: firestream.mkMixRelease { pname = "realtime"; src = ...; mixDeps = ./mix-deps.nix; }
+  mkMixRelease = import ./beam/mkMixRelease.nix { inherit pkgs lib; };
 
   # Convenience: combined functions from all core libs
   # Returns a single string containing all library functions
@@ -216,9 +231,9 @@ in {
     description = "Firestream Nix Shell Module System for container initialization";
     moduleCount = builtins.length (lib.attrNames coreLibs);
     modules = lib.attrNames coreLibs;
-    containerFactories = [ "mkContainerModule" "mkPythonContainerModule" "mkPythonWorkspaceContainer" "mkJavaContainerModule" "mkNodeContainerModule" ];
+    containerFactories = [ "mkContainerModule" "mkPythonContainerModule" "mkPythonWorkspaceContainer" "mkJavaContainerModule" "mkNodeContainerModule" "mkBeamContainerModule" ];
     hasPythonWorkspaceSupport = hasPythonInputs;
-    packageBuilders = [ "mkRustPackage" "mkNodePackage" ];
+    packageBuilders = [ "mkRustPackage" "mkNodePackage" "mkMixRelease" ];
     devModules = [ "node" ];
     fleetManifest = [ "collectArtifacts" "mkFleetManifest" ];
   };
