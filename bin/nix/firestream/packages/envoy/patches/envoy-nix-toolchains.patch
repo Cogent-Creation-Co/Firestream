@@ -1,0 +1,226 @@
+--- a/bazel/dependency_imports.bzl
++++ b/bazel/dependency_imports.bzl
+@@ -12,7 +12,6 @@
+ load("@fuzzing_pip3//:requirements.bzl", pip_fuzzing_dependencies = "install_deps")
+ load("@io_bazel_rules_go//go:deps.bzl", "go_download_sdk", "go_register_toolchains", "go_rules_dependencies")
+ load("@proxy_wasm_rust_sdk//bazel:dependencies.bzl", "proxy_wasm_rust_sdk_dependencies")
+-load("@rules_buf//buf:repositories.bzl", "rules_buf_toolchains")
+ load("@rules_cc//cc:extensions.bzl", "compatibility_proxy_repo")
+ load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+ load("@rules_fuzzing//fuzzing:repositories.bzl", "rules_fuzzing_dependencies")
+@@ -25,7 +24,7 @@
+ load("@shellcheck//:deps.bzl", "shellcheck_dependencies")
+ 
+ # go version for rules_go
+-GO_VERSION = "1.24.6"
++GO_VERSION = "host"
+ 
+ JQ_VERSION = "1.7"
+ YQ_VERSION = "4.24.4"
+@@ -45,7 +44,11 @@
+         # - https://github.com/envoyproxy/envoy/issues/38951
+         cargo_bazel_lockfile = "@envoy//:Cargo.Bazel.lock"):
+     compatibility_proxy_repo()
+-    rules_foreign_cc_dependencies()
++    rules_foreign_cc_dependencies(
++        register_default_tools = False,
++        register_built_tools = False,
++        register_preinstalled_tools = True,
++    )
+     go_rules_dependencies()
+     go_register_toolchains(go_version)
+     if go_version != "host":
+@@ -93,11 +96,6 @@
+     register_yq_toolchains(version = yq_version)
+     parser_deps()
+ 
+-    rules_buf_toolchains(
+-        sha256 = buf_sha,
+-        version = buf_version,
+-    )
+-
+     setup_sanitizer_libs()
+ 
+     protoc_gen_jsonschema_go_dependencies()
+@@ -251,6 +249,9 @@
+ def crates_repositories(cargo_bazel_lockfile):
+     crates_repository(
+         name = "envoy_rust_crate_index",
++        generator = "@@//bazel/nix:cargo-bazel",
++        rust_toolchain_cargo_template = "@@//bazel/nix:cargo",
++        rust_toolchain_rustc_template = "@@//bazel/nix:rustc",
+         cargo_lockfile = "@envoy//:Cargo.lock",
+         lockfile = Label(cargo_bazel_lockfile),
+         manifests = ["@envoy//:Cargo.toml"],
+--- a/bazel/dependency_imports_extra.bzl
++++ b/bazel/dependency_imports_extra.bzl
+@@ -1,7 +1,5 @@
+ load("@envoy_rust_crate_index//:defs.bzl", "crate_repositories")
+-load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
+ 
+ # Dependencies that rely on a first stage of envoy_dependency_imports() in dependency_imports.bzl.
+ def envoy_dependency_imports_extra():
+     crate_repositories()
+-    llvm_register_toolchains()
+--- a/bazel/protobuf.patch
++++ b/bazel/protobuf.patch
+@@ -65,12 +65,12 @@
+ +alias(
+ +    name = "protoc",
+ +    actual = select({
+-+        ":linux-aarch_64": "@com_google_protobuf_protoc_linux_aarch_64//:protoc",
+-+        ":linux-x86_64": "@com_google_protobuf_protoc_linux_x86_64//:protoc",
+-+        ":linux-ppcle_64": "@com_google_protobuf_protoc_linux_ppcle_64//:protoc",
+-+        ":osx-aarch_64": "@com_google_protobuf_protoc_osx_aarch_64//:protoc",
+-+        ":osx-x86_64": "@com_google_protobuf_protoc_osx_x86_64//:protoc",
+-+        ":win64": "@com_google_protobuf_protoc_win64//:protoc",
+++        ":linux-aarch_64": ":compiled_protoc",
+++        ":linux-x86_64": ":compiled_protoc",
+++        ":linux-ppcle_64": ":compiled_protoc",
+++        ":osx-aarch_64": ":compiled_protoc",
+++        ":osx-x86_64": ":compiled_protoc",
+++        ":win64": ":compiled_protoc",
+ +        "//conditions:default": ":compiled_protoc",
+ +    }),
+ +    visibility = ["//visibility:public"],
+--- a/bazel/python_dependencies.bzl
++++ b/bazel/python_dependencies.bzl
+@@ -1,27 +1,28 @@
+ load("@com_google_protobuf//python/dist:system_python.bzl", "system_python")
+-load("@envoy_toolshed//:packages.bzl", "load_packages")
++load("@bazel_features//:deps.bzl", "bazel_features_deps")
+ load("@rules_python//python:pip.bzl", "pip_parse")
+ 
+ def envoy_python_dependencies():
+     # TODO(phlax): rename base_pip3 -> pip3 and remove this
+-    load_packages()
++    pip_parse(
++        name = "toolshed_pip3",
++        requirements_lock = "@envoy_toolshed//:requirements.txt",
++    )
++    bazel_features_deps()
+     pip_parse(
+         name = "base_pip3",
+-        python_interpreter_target = "@python3_12_host//:python",
+         requirements_lock = "@envoy//tools/base:requirements.txt",
+         extra_pip_args = ["--require-hashes"],
+     )
+ 
+     pip_parse(
+         name = "dev_pip3",
+-        python_interpreter_target = "@python3_12_host//:python",
+         requirements_lock = "@envoy//tools/dev:requirements.txt",
+         extra_pip_args = ["--require-hashes"],
+     )
+ 
+     pip_parse(
+         name = "fuzzing_pip3",
+-        python_interpreter_target = "@python3_12_host//:python",
+         requirements_lock = "@rules_fuzzing//fuzzing:requirements.txt",
+         extra_pip_args = ["--require-hashes"],
+     )
+--- a/bazel/repositories.bzl
++++ b/bazel/repositories.bzl
+@@ -1,7 +1,7 @@
+ load("@com_google_googleapis//:repository_rules.bzl", "switched_rules_by_language")
+ load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
+ load("@envoy_api//bazel:external_deps.bzl", "load_repository_locations")
+-load(":repository_locations.bzl", "PROTOC_VERSIONS", "REPOSITORY_LOCATIONS_SPEC")
++load(":repository_locations.bzl", "REPOSITORY_LOCATIONS_SPEC")
+ 
+ PPC_SKIP_TARGETS = ["envoy.string_matcher.lua", "envoy.filters.http.lua", "envoy.router.cluster_specifier_plugin.lua"]
+ 
+@@ -585,6 +585,7 @@
+         patches = [
+             "@envoy//bazel/foreign_cc:cel-cpp.patch",
+             "@envoy//bazel/foreign_cc:cel-cpp-protobuf-v35.patch",
++            "@envoy//bazel/nix:cel-cpp-antlr.patch",
+         ],
+         repo_mapping = {
+             "@com_google_absl": "@abseil-cpp",
+@@ -756,16 +757,6 @@
+         repo_mapping = {"@com_google_absl": "@abseil-cpp"},
+     )
+ 
+-    for platform in PROTOC_VERSIONS:
+-        # Ideally we dont use a private build artefact as done here.
+-        # If `rules_proto` implements protoc toolchains in the future (currently it
+-        # is there, but is empty) we should remove these and use that rule
+-        # instead.
+-        external_http_archive(
+-            "com_google_protobuf_protoc_%s" % platform,
+-            build_file = "@envoy//bazel/protoc:BUILD.protoc",
+-        )
+-
+     external_http_archive(
+         "com_google_protobuf",
+         patches = ["@envoy//bazel:protobuf.patch"],
+--- a/bazel/repositories_extra.bzl
++++ b/bazel/repositories_extra.bzl
+@@ -6,7 +6,7 @@
+ load("@proxy_wasm_cpp_host//bazel/cargo/wasmtime/remote:crates.bzl", "crate_repositories")
+ load("@rules_cc//cc:extensions.bzl", "compatibility_proxy_repo")
+ load("@rules_java//java:rules_java_deps.bzl", java_compatibility_proxy_repo = "compatibility_proxy_repo")
+-load("@rules_python//python:repositories.bzl", "py_repositories", "python_register_toolchains")
++load("@rules_python//python:repositories.bzl", "py_repositories")
+ load("@toolchains_llvm//toolchain:deps.bzl", "bazel_toolchain_dependencies")
+ load("//bazel/external/cargo:crates.bzl", "raze_fetch_remote_crates")
+ 
+@@ -34,13 +34,6 @@
+     crate_repositories()
+     py_repositories()
+ 
+-    # Registers underscored Python minor version - eg `python3_10`
+-    python_register_toolchains(
+-        name = "python%s" % _python_minor_version(python_version),
+-        python_version = python_version,
+-        ignore_root_user_error = ignore_root_user_error,
+-    )
+-
+     aspect_bazel_lib_dependencies()
+ 
+     if not native.existing_rule("proto_bazel_features"):
+--- a/bazel/toolchains.bzl
++++ b/bazel/toolchains.bzl
+@@ -43,7 +43,6 @@
+ """
+ 
+ def envoy_toolchains():
+-    native.register_toolchains("@envoy//bazel/rbe/toolchains/configs/linux/gcc/config:cc-toolchain")
+     arch_alias(
+         name = "clang_platform",
+         aliases = {
+@@ -62,19 +61,3 @@
+                 major_minor = LLVM_MAJOR_MINOR,
+             ),
+         )
+-
+-    llvm_toolchain(
+-        name = "llvm_toolchain",
+-        llvm_version = LLVM_VERSION,
+-        cxx_cross_lib = {} if LLVM_PATH else {
+-            "linux-aarch64": "@libcxx_libs_aarch64",
+-            "linux-x86_64": "@libcxx_libs_x86_64",
+-        },
+-        cxx_standard = {"": "c++20"},
+-        stdlib = {"": "stdc++"} if USE_LIBSTDCPP else {},
+-        sysroot = {} if USE_LOCAL_SYSROOT else {
+-            "linux-x86_64": "@sysroot_linux_amd64//:sysroot",
+-            "linux-aarch64": "@sysroot_linux_arm64//:sysroot",
+-        },
+-        toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
+-    )
+--- a/source/extensions/dynamic_modules/sdk/rust/BUILD
++++ b/source/extensions/dynamic_modules/sdk/rust/BUILD
+@@ -53,11 +53,6 @@
+             "@llvm_toolchain_llvm//:lib_legacy",
+         ],
+         "//conditions:default": [],
+-    }) + select({
+-        # This allows the cross-compilation of the SDK to succeed by providing the necessary system headers for the target platform.
+-        "@platforms//cpu:x86_64": ["@sysroot_linux_amd64//:headers"],
+-        "@platforms//cpu:aarch64": ["@sysroot_linux_arm64//:headers"],
+-        "//conditions:default": [],
+     }),
+     edition = "2021",
+     deps = all_crate_deps(

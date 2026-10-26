@@ -1,0 +1,2444 @@
+{
+  "archives": [
+    {
+      "name": "abseil_cpp",
+      "sha256": "4314e2a7cbac89cac25a2f2322870f343d81579756ceff7f431803c2c9090195",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/abseil/abseil-cpp/archive/20260107.1.tar.gz"
+      ]
+    },
+    {
+      "name": "antlr4_runtimes",
+      "sha256": "365ff6aec0b1612fb964a763ca73748d80e0b3379cbdd9f82d86333eb8ae4638",
+      "source": "cel_cpp/bazel/deps.bzl",
+      "urls": [
+        "https://github.com/antlr/antlr4/archive/refs/tags/4.13.1.zip"
+      ]
+    },
+    {
+      "name": "aspect_bazel_lib",
+      "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"
+      ]
+    },
+    {
+      "name": "aspect_rules_js",
+      "sha256": "5a00869efaeb308245f8132a671fe86524bdfc4f8bfd1976d26f862b316dc3c9",
+      "source": "emsdk/deps.bzl",
+      "urls": [
+        "https://github.com/aspect-build/rules_js/releases/download/v1.42.0/rules_js-v1.42.0.tar.gz"
+      ]
+    },
+    {
+      "name": "bazel_features",
+      "sha256": "adfdb3cffab3a99a63363d844d559a81965d2b61a6062dd51a3d2478d416768f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/bazel_features/releases/download/v1.45.0/bazel_features-v1.45.0.tar.gz"
+      ]
+    },
+    {
+      "name": "bazel_features",
+      "sha256": "f3082bfcdca73dc77dcd68faace806135a2e08c230b02b1d9fbdbd7db9d9c450",
+      "source": "emsdk/deps.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/bazel_features/releases/download/v0.1.0/bazel_features-v0.1.0.tar.gz"
+      ]
+    },
+    {
+      "name": "bazel_gazelle",
+      "sha256": "675114d8b433d0a9f54d81171833be96ebc4113115664b791e6f204d58e93446",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.47.0/bazel-gazelle-v0.47.0.tar.gz"
+      ]
+    },
+    {
+      "name": "bazel_skylib",
+      "sha256": "3b5b49006181f5f8ff626ef8ddceaa95e9bb8ad294f7b5d7b11ea9f7ddaf8c59",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.9.0/bazel-skylib-1.9.0.tar.gz"
+      ]
+    },
+    {
+      "name": "boringssl",
+      "sha256": "3560f7dd3f08e16b9f84d877a5be21ec62071564783009571af5fcc6fad734d2",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/boringssl/archive/0.20260413.0.tar.gz"
+      ]
+    },
+    {
+      "name": "brotli",
+      "sha256": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/brotli/archive/v1.2.0.tar.gz"
+      ]
+    },
+    {
+      "name": "build_bazel_apple_support",
+      "sha256": "c4bb2b7367c484382300aee75be598b92f847896fb31bbd22f3a2346adf66a80",
+      "source": "build_bazel_rules_apple/apple/repositories.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/apple_support/releases/download/1.15.1/apple_support.1.15.1.tar.gz"
+      ]
+    },
+    {
+      "name": "build_bazel_rules_apple",
+      "sha256": "73ad768dfe824c736d0a8a81521867b1fb7a822acda2ed265897c03de6ae6767",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_apple/releases/download/3.20.1/rules_apple.3.20.1.tar.gz"
+      ]
+    },
+    {
+      "name": "build_bazel_rules_swift",
+      "sha256": "28db894977ac51c8f3ab7c6dc9d655a85510366734e900b3c5302ce1ed91256c",
+      "source": "build_bazel_rules_apple/apple/repositories.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_swift/releases/download/2.4.0/rules_swift.2.4.0.tar.gz"
+      ]
+    },
+    {
+      "name": "c_ares",
+      "sha256": "912dd7cc3b3e8a79c52fd7fb9c0f4ecf0aaa73e45efda880266a2d6e26b84ef5",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/c-ares/c-ares/releases/download/v1.34.6/c-ares-1.34.6.tar.gz"
+      ]
+    },
+    {
+      "name": "cel_cpp",
+      "sha256": "0a4f9a1c0bcc83629eb30d1c278883d32dec0f701efcdabd7bebf33fef8dab71",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/cel-cpp/archive/v0.14.0.tar.gz"
+      ]
+    },
+    {
+      "name": "com_envoyproxy_protoc_gen_validate",
+      "sha256": "20da84f8efe8f53c10cbde79d2cdd1e63365b0ae1ad9de22af56aa1a49d59330",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bufbuild/protoc-gen-validate/archive/refs/tags/v1.3.3.zip"
+      ]
+    },
+    {
+      "name": "com_github_chrusty_protoc_gen_jsonschema",
+      "sha256": "ba3e313b10a1b50a6c1232d994c13f6e23d3669be4ae7fea13762f42bb3b2abc",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/norbjd/protoc-gen-jsonschema/archive/7680e4998426e62b6896995ff73d4d91cc5fb13c.zip"
+      ]
+    },
+    {
+      "name": "com_github_grpc_grpc",
+      "sha256": "48ae0d05f87206112d9e9144a923191ee1e482141a70686ec58dc86d0b40fddc",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/grpc/grpc/archive/v1.81.1.tar.gz"
+      ]
+    },
+    {
+      "name": "com_google_googleapis",
+      "sha256": "97fc354dddfd3ea03e7bf2ad74129291ed6fad7ff39d3bd8daec738a3672eb8a",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/googleapis/googleapis/archive/fd52b5754b2b268bc3a22a10f29844f206abb327.tar.gz"
+      ]
+    },
+    {
+      "name": "com_google_protobuf",
+      "sha256": "f0b6838e7522a8da96126d487068c959bc624926368f3024ac8fd03abd0a1ac4",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protobuf-35.1.tar.gz"
+      ]
+    },
+    {
+      "name": "cpp2sky",
+      "sha256": "d7e52f517de5a1dc7d927dd63a2e5aa5cf8c2dcfd8fcf6b64e179978daf1c3ed",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/SkyAPM/cpp2sky/archive/v0.6.0.tar.gz"
+      ]
+    },
+    {
+      "name": "dd_trace_cpp",
+      "sha256": "8152fb69e61518a5b55ecb96edcbb19585f8950b6f070ac98ebd0b6dd6177492",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/DataDog/dd-trace-cpp/archive/v2.1.0.tar.gz"
+      ]
+    },
+    {
+      "name": "dev_cel",
+      "sha256": "13583c5a312861648449845b709722676a3c9b43396b6b8e9cbe4538feb74ad2",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/cel-spec/archive/v0.25.1.tar.gz"
+      ]
+    },
+    {
+      "name": "emsdk",
+      "sha256": "2d3292d508b4f5477f490b080b38a34aaefed43e85258a1de72cb8dde3f8f3af",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.6.tar.gz"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__anstyle-1.0.14",
+      "sha256": "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/anstyle/1.0.14/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__async-trait-0.1.89",
+      "sha256": "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/async-trait/0.1.89/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__atomic-waker-1.1.2",
+      "sha256": "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/atomic-waker/1.1.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__bindgen-0.70.1",
+      "sha256": "f49d8fed880d473ea71efb9bf597651e77201bdd4893efe54c9e5d65ae04ce6f",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/bindgen/0.70.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__bitflags-2.11.0",
+      "sha256": "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/bitflags/2.11.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__bytes-1.11.1",
+      "sha256": "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/bytes/1.11.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__cc-1.2.57",
+      "sha256": "7a0dd1ca384932ff3641c8718a02769f1698e7563dc6974ffd03346116310423",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/cc/1.2.57/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__cexpr-0.6.0",
+      "sha256": "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/cexpr/0.6.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__cfg-if-1.0.4",
+      "sha256": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/cfg-if/1.0.4/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__chacha20-0.10.0",
+      "sha256": "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/chacha20/0.10.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__clang-sys-1.8.1",
+      "sha256": "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/clang-sys/1.8.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__cpufeatures-0.3.0",
+      "sha256": "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/cpufeatures/0.3.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__critical-section-1.2.0",
+      "sha256": "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/critical-section/1.2.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__crossbeam-channel-0.5.15",
+      "sha256": "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/crossbeam-channel/0.5.15/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__crossbeam-epoch-0.9.18",
+      "sha256": "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/crossbeam-epoch/0.9.18/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__crossbeam-utils-0.8.21",
+      "sha256": "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/crossbeam-utils/0.8.21/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__data-encoding-2.10.0",
+      "sha256": "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/data-encoding/2.10.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__deranged-0.5.8",
+      "sha256": "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/deranged/0.5.8/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__downcast-0.11.0",
+      "sha256": "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/downcast/0.11.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__either-1.15.0",
+      "sha256": "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/either/1.15.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__equivalent-1.0.2",
+      "sha256": "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/equivalent/1.0.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__find-msvc-tools-0.1.9",
+      "sha256": "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/find-msvc-tools/0.1.9/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__fnv-1.0.7",
+      "sha256": "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/fnv/1.0.7/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__form_urlencoded-1.2.2",
+      "sha256": "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/form_urlencoded/1.2.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__fragile-2.0.1",
+      "sha256": "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/fragile/2.0.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-channel-0.3.32",
+      "sha256": "07bbe89c50d7a535e539b8c17bc0b49bdb77747034daa8087407d655f3f7cc1d",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-channel/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-core-0.3.32",
+      "sha256": "7e3450815272ef58cec6d564423f6e755e25379b217b0bc688e295ba24df6b1d",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-core/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-io-0.3.32",
+      "sha256": "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-io/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-macro-0.3.32",
+      "sha256": "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-macro/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-sink-0.3.32",
+      "sha256": "c39754e157331b013978ec91992bde1ac089843443c49cbc7f46150b0fad0893",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-sink/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-task-0.3.32",
+      "sha256": "037711b3d59c33004d3856fbdc83b99d4ff37a24768fa1be9ce3538a1cde4393",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-task/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__futures-util-0.3.32",
+      "sha256": "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/futures-util/0.3.32/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__getrandom-0.2.17",
+      "sha256": "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/getrandom/0.2.17/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__getrandom-0.4.2",
+      "sha256": "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/getrandom/0.4.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__glob-0.3.3",
+      "sha256": "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/glob/0.3.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__h2-0.4.13",
+      "sha256": "2f44da3a8150a6703ed5d34e164b875fd14c2cdab9af1252a9a1020bde2bdc54",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/h2/0.4.13/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__hashbrown-0.16.1",
+      "sha256": "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/hashbrown/0.16.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__hickory-net-0.26.1",
+      "sha256": "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/hickory-net/0.26.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__hickory-proto-0.26.1",
+      "sha256": "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/hickory-proto/0.26.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__hickory-resolver-0.26.1",
+      "sha256": "f0d58d28879ceecde6607729660c2667a081ccdc082e082675042793960f178c",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/hickory-resolver/0.26.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__http-1.4.0",
+      "sha256": "e3ba2a386d7f85a81f119ad7498ebe444d2e22c2af0b86b069416ace48b3311a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/http/1.4.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_collections-2.1.1",
+      "sha256": "4c6b649701667bbe825c3b7e6388cb521c23d88644678e83c0c4d0a621a34b43",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_collections/2.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_locale_core-2.1.1",
+      "sha256": "edba7861004dd3714265b4db54a3c390e880ab658fec5f7db895fae2046b5bb6",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_locale_core/2.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_normalizer-2.1.1",
+      "sha256": "5f6c8828b67bf8908d82127b2054ea1b4427ff0230ee9141c54251934ab1b599",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_normalizer/2.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_normalizer_data-2.1.1",
+      "sha256": "7aedcccd01fc5fe81e6b489c15b247b8b0690feb23304303a9e560f37efc560a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_normalizer_data/2.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_properties-2.1.2",
+      "sha256": "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_properties/2.1.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_properties_data-2.1.2",
+      "sha256": "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_properties_data/2.1.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__icu_provider-2.1.1",
+      "sha256": "85962cf0ce02e1e0a629cc34e7ca3e373ce20dda4c4d7294bbd0bf1fdb59e614",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/icu_provider/2.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__idna-1.1.0",
+      "sha256": "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/idna/1.1.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__idna_adapter-1.2.1",
+      "sha256": "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/idna_adapter/1.2.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__indexmap-2.13.0",
+      "sha256": "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/indexmap/2.13.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__ipnet-2.12.0",
+      "sha256": "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/ipnet/2.12.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__itertools-0.13.0",
+      "sha256": "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/itertools/0.13.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__itoa-1.0.18",
+      "sha256": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/itoa/1.0.18/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__libc-0.2.183",
+      "sha256": "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/libc/0.2.183/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__libloading-0.8.9",
+      "sha256": "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/libloading/0.8.9/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__linked-hash-map-0.5.6",
+      "sha256": "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/linked-hash-map/0.5.6/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__litemap-0.8.1",
+      "sha256": "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/litemap/0.8.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__lock_api-0.4.14",
+      "sha256": "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/lock_api/0.4.14/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__log-0.4.29",
+      "sha256": "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/log/0.4.29/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__lru-cache-0.1.2",
+      "sha256": "31e24f1ad8321ca0e8a1e0ac13f23cb668e6f5466c2c57319f6a5cf1cc8e3b1c",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/lru-cache/0.1.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__memchr-2.8.0",
+      "sha256": "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/memchr/2.8.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__minimal-lexical-0.2.1",
+      "sha256": "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/minimal-lexical/0.2.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__mio-1.1.1",
+      "sha256": "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/mio/1.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__mockall-0.13.1",
+      "sha256": "39a6bfcc6c8c7eed5ee98b9c3e33adc726054389233e201c95dab2d41a3839d2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/mockall/0.13.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__mockall_derive-0.13.1",
+      "sha256": "25ca3004c2efe9011bd4e461bd8256445052b9615405b4f7ea43fc8ca5c20898",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/mockall_derive/0.13.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__moka-0.12.15",
+      "sha256": "957228ad12042ee839f93c8f257b62b4c0ab5eaae1d4fa60de53b27c9d7c5046",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/moka/0.12.15/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__nom-7.1.3",
+      "sha256": "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/nom/7.1.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__num-conv-0.2.1",
+      "sha256": "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/num-conv/0.2.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__once_cell-1.21.4",
+      "sha256": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/once_cell/1.21.4/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__parking_lot-0.12.5",
+      "sha256": "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/parking_lot/0.12.5/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__parking_lot_core-0.9.12",
+      "sha256": "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/parking_lot_core/0.9.12/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__percent-encoding-2.3.2",
+      "sha256": "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/percent-encoding/2.3.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__pin-project-lite-0.2.17",
+      "sha256": "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/pin-project-lite/0.2.17/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__portable-atomic-1.13.1",
+      "sha256": "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/portable-atomic/1.13.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__potential_utf-0.1.4",
+      "sha256": "b73949432f5e2a09657003c25bca5e19a0e9c84f8058ca374f49e0ebe605af77",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/potential_utf/0.1.4/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__powerfmt-0.2.0",
+      "sha256": "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/powerfmt/0.2.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__predicates-3.1.4",
+      "sha256": "ada8f2932f28a27ee7b70dd6c1c39ea0675c55a36879ab92f3a715eaa1e63cfe",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/predicates/3.1.4/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__predicates-core-1.0.10",
+      "sha256": "cad38746f3166b4031b1a0d39ad9f954dd291e7854fcc0eed52ee41a0b50d144",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/predicates-core/1.0.10/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__predicates-tree-1.0.13",
+      "sha256": "d0de1b847b39c8131db0467e9df1ff60e6d0562ab8e9a16e568ad0fdb372e2f2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/predicates-tree/1.0.13/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__prefix-trie-0.8.3",
+      "sha256": "90f561214012d3fc240a1f9c817cc4d57f5310910d066069c1b093f766bb5966",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/prefix-trie/0.8.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__prettyplease-0.2.37",
+      "sha256": "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/prettyplease/0.2.37/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__proc-macro2-1.0.106",
+      "sha256": "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/proc-macro2/1.0.106/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__quote-1.0.45",
+      "sha256": "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/quote/1.0.45/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rand-0.10.1",
+      "sha256": "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rand/0.10.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rand_core-0.10.1",
+      "sha256": "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rand_core/0.10.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__regex-1.12.3",
+      "sha256": "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/regex/1.12.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__regex-automata-0.4.14",
+      "sha256": "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/regex-automata/0.4.14/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__regex-syntax-0.8.10",
+      "sha256": "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/regex-syntax/0.8.10/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__resolv-conf-0.7.6",
+      "sha256": "1e061d1b48cb8d38042de4ae0a7a6401009d6143dc80d2e2d6f31f0bdd6470c7",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/resolv-conf/0.7.6/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__ring-0.17.14",
+      "sha256": "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/ring/0.17.14/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rustc-hash-1.1.0",
+      "sha256": "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rustc-hash/1.1.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rustls-0.23.37",
+      "sha256": "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rustls/0.23.37/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rustls-pki-types-1.14.0",
+      "sha256": "be040f8b0a225e40375822a563fa9524378b9d63112f53e19ffff34df5d33fdd",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rustls-pki-types/1.14.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__rustls-webpki-0.103.13",
+      "sha256": "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/rustls-webpki/0.103.13/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__scopeguard-1.2.0",
+      "sha256": "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/scopeguard/1.2.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__serde-1.0.228",
+      "sha256": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/serde/1.0.228/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__serde_core-1.0.228",
+      "sha256": "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/serde_core/1.0.228/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__serde_derive-1.0.228",
+      "sha256": "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/serde_derive/1.0.228/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__serde_json-1.0.149",
+      "sha256": "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/serde_json/1.0.149/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__shlex-1.3.0",
+      "sha256": "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/shlex/1.3.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__slab-0.4.12",
+      "sha256": "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/slab/0.4.12/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__smallvec-1.15.1",
+      "sha256": "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/smallvec/1.15.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__socket2-0.6.3",
+      "sha256": "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/socket2/0.6.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__stable_deref_trait-1.2.1",
+      "sha256": "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/stable_deref_trait/1.2.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__subtle-2.6.1",
+      "sha256": "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/subtle/2.6.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__syn-2.0.117",
+      "sha256": "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/syn/2.0.117/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__synstructure-0.13.2",
+      "sha256": "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/synstructure/0.13.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tagptr-0.2.0",
+      "sha256": "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tagptr/0.2.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__termtree-0.5.1",
+      "sha256": "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/termtree/0.5.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__thiserror-2.0.18",
+      "sha256": "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/thiserror/2.0.18/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__thiserror-impl-2.0.18",
+      "sha256": "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/thiserror-impl/2.0.18/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__time-0.3.47",
+      "sha256": "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/time/0.3.47/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__time-core-0.1.8",
+      "sha256": "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/time-core/0.1.8/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tinystr-0.8.2",
+      "sha256": "42d3e9c45c09de15d06dd8acf5f4e0e399e85927b7f00711024eb7ae10fa4869",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tinystr/0.8.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tinyvec-1.11.0",
+      "sha256": "3e61e67053d25a4e82c844e8424039d9745781b3fc4f32b8d55ed50f5f667ef3",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tinyvec/1.11.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tinyvec_macros-0.1.1",
+      "sha256": "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tinyvec_macros/0.1.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tokio-1.50.0",
+      "sha256": "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tokio/1.50.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tokio-macros-2.6.1",
+      "sha256": "5c55a2eff8b69ce66c84f85e1da1c233edc36ceb85a2058d11b0d6a3c7e7569c",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tokio-macros/2.6.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tokio-rustls-0.26.4",
+      "sha256": "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tokio-rustls/0.26.4/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tokio-util-0.7.18",
+      "sha256": "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tokio-util/0.7.18/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tracing-0.1.44",
+      "sha256": "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tracing/0.1.44/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__tracing-core-0.1.36",
+      "sha256": "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/tracing-core/0.1.36/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__unicode-ident-1.0.24",
+      "sha256": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/unicode-ident/1.0.24/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__untrusted-0.9.0",
+      "sha256": "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/untrusted/0.9.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__url-2.5.8",
+      "sha256": "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/url/2.5.8/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__uuid-1.22.0",
+      "sha256": "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/uuid/1.22.0/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__webpki-roots-1.0.6",
+      "sha256": "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/webpki-roots/1.0.6/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__writeable-0.6.2",
+      "sha256": "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/writeable/0.6.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__yoke-0.8.1",
+      "sha256": "72d6e5c6afb84d73944e5cedb052c4680d5657337201555f9f2a16b7406d4954",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/yoke/0.8.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__yoke-derive-0.8.1",
+      "sha256": "b659052874eb698efe5b9e8cf382204678a0086ebf46982b79d6ca3182927e5d",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/yoke-derive/0.8.1/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zerofrom-0.1.6",
+      "sha256": "50cc42e0333e05660c3587f3bf9d0478688e15d870fab3346451ce7f8c9fbea5",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zerofrom/0.1.6/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zerofrom-derive-0.1.6",
+      "sha256": "d71e5d6e06ab090c67b5e44993ec16b72dcbaabc526db883a360057678b48502",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zerofrom-derive/0.1.6/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zeroize-1.8.2",
+      "sha256": "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zeroize/1.8.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zerotrie-0.2.3",
+      "sha256": "2a59c17a5562d507e4b54960e8569ebee33bee890c70aa3fe7b97e85a9fd7851",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zerotrie/0.2.3/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zerovec-0.11.5",
+      "sha256": "6c28719294829477f525be0186d13efa9a3c602f7ec202ca9e353d310fb9a002",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zerovec/0.11.5/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zerovec-derive-0.11.2",
+      "sha256": "eadce39539ca5cb3985590102671f2567e659fca9666581ad3411d59207951f3",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zerovec-derive/0.11.2/download"
+      ]
+    },
+    {
+      "name": "envoy_rust_crate_index__zmij-1.0.21",
+      "sha256": "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa",
+      "source": "Cargo.Bazel.lock",
+      "urls": [
+        "https://static.crates.io/crates/zmij/1.0.21/download"
+      ]
+    },
+    {
+      "name": "envoy_toolshed",
+      "sha256": "5179bc3f912d9c2dd5a6e5215e98222abe088847f021eba9f0f2e9a006deacaa",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/envoyproxy/toolshed/releases/download/bazel-v0.3.35/toolshed-bazel-v0.3.35.tar.gz"
+      ]
+    },
+    {
+      "name": "flatbuffers",
+      "sha256": "f81c3162b1046fe8b84b9a0dbdd383e24fdbcf88583b9cb6028f90d04d90696a",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/flatbuffers/archive/v25.12.19.tar.gz"
+      ]
+    },
+    {
+      "name": "fmt",
+      "sha256": "695fd197fa5aff8fc67b5f2bbc110490a875cdf7a41686ac8512fb480fa8ada7",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/fmtlib/fmt/releases/download/12.1.0/fmt-12.1.0.zip"
+      ]
+    },
+    {
+      "name": "googleurl",
+      "sha256": "4ffa45a827646692e7b26e2a8c0dcbc1b1763a26def2fbbd82362970962a2fcf",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/gurl/archive/dd4080fec0b443296c0ed0036e1e776df8813aa7.tar.gz"
+      ]
+    },
+    {
+      "name": "grpc_httpjson_transcoding",
+      "sha256": "45dc1a630f518df21b4e044e32b27c7b02ae77ef401b48a20e5ffde0f070113f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/grpc-ecosystem/grpc-httpjson-transcoding/archive/a6e226f9a2e656a973df3ad48f0ee5efacce1a28.tar.gz"
+      ]
+    },
+    {
+      "name": "helly25_bzl",
+      "sha256": "c8e28a3cb7e465b4b71f5d4d366c5796cc0ae822fa510a8adf12cf39a9709902",
+      "source": "toolchains_llvm/toolchain/deps.bzl",
+      "urls": [
+        "https://github.com/helly25/bzl/releases/download/0.3.1/bzl-0.3.1.tar.gz"
+      ]
+    },
+    {
+      "name": "hessian2_codec",
+      "sha256": "bb4c4af6a7e3031160bf38dfa957b0ee950e2d8de47d4ba14c7a658c3a2c74d1",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/alibaba/hessian2-codec/archive/6f5a64770f0374a761eece13c8863b80dc5adcd8.tar.gz"
+      ]
+    },
+    {
+      "name": "io_bazel_rules_go",
+      "sha256": "86d3dc8f59d253524f933aaf2f3c05896cb0b605fc35b460c0b4b039996124c6",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.60.0/rules_go-v0.60.0.zip"
+      ]
+    },
+    {
+      "name": "jq.bzl",
+      "sha256": "7b63435aa19cc6a0cfd1a82fbdf2c7a2f0a94db1a79ff7a4469ffa94286261ab",
+      "source": "aspect_bazel_lib/lib/repositories.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/jq.bzl/releases/download/v0.1.0/jq.bzl-v0.1.0.tar.gz"
+      ]
+    },
+    {
+      "name": "libcircllhist",
+      "sha256": "6dfbd649fde380f7a2256def43b9c6374c6d6fe768178b09e39eedf874b139f4",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/openhistogram/libcircllhist/archive/refs/tags/py-0.3.2.tar.gz"
+      ]
+    },
+    {
+      "name": "libevent",
+      "sha256": "4c80e5fe044ce5f8055b20a2f141ee32ec2614000f3e95d2aa81611a4c8f5213",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/libevent/libevent/archive/62c152d9a7cd264b993dad730c4163c6ede2e0a3.tar.gz"
+      ]
+    },
+    {
+      "name": "libmaxminddb",
+      "sha256": "a66502ea76eadbe17f2cd6fd708946777253972d2ae8157dee1b23a2fb528171",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/maxmind/libmaxminddb/releases/download/1.13.3/libmaxminddb-1.13.3.tar.gz"
+      ]
+    },
+    {
+      "name": "liburing",
+      "sha256": "5f80964108981c6ad979c735f0b4877d5f49914c2a062f8e88282f26bf61de0c",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/axboe/liburing/archive/liburing-2.14.tar.gz"
+      ]
+    },
+    {
+      "name": "luajit",
+      "sha256": "ab3f16d82df6946543565cfb0d2810d387d79a3a43e0431695b03466188e2680",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/LuaJIT/LuaJIT/archive/871db2c84ecefd70a850e03a6c340214a81739f0.tar.gz"
+      ]
+    },
+    {
+      "name": "msgpack_cxx",
+      "sha256": "7504b7af7e7b9002ce529d4f941e1b7fb1fb435768780ce7da4abaac79bb156f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/msgpack/msgpack-c/releases/download/cpp-7.0.0/msgpack-cxx-7.0.0.tar.gz"
+      ]
+    },
+    {
+      "name": "nghttp2",
+      "sha256": "e178687730c207f3a659730096df192b52d3752786c068b8e5ee7aeb8edae05a",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/nghttp2/nghttp2/releases/download/v1.66.0/nghttp2-1.66.0.tar.gz"
+      ]
+    },
+    {
+      "name": "nlohmann_json",
+      "sha256": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/nlohmann/json/archive/v3.12.0.tar.gz"
+      ]
+    },
+    {
+      "name": "ocp",
+      "sha256": "b83b8ea7a937ce7f5d6870421be8f9a5343e8c2de2bd2e269452981d67da1509",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/opencomputeproject/ocp-diag-core/archive/e965ac0ac6db6686169678e2a6c77ede904fa82c.zip"
+      ]
+    },
+    {
+      "name": "opentelemetry_cpp",
+      "sha256": "8a878777a18a013e0ee6604629d1b5f29b162354c14489ad1dccd370f14ac372",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.26.0.tar.gz"
+      ]
+    },
+    {
+      "name": "opentelemetry_proto",
+      "sha256": "52c85df79badc45da7e6a8735e8090b05a961b0208756187e1492a40db2d1f5f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/open-telemetry/opentelemetry-proto/archive/v1.10.0.tar.gz"
+      ]
+    },
+    {
+      "name": "package_metadata",
+      "sha256": "49ed11e5d6b752c55fa539cbb10b2736974f347b081d7bd500a80dacb7dbec06",
+      "source": "bazel_gazelle/deps.bzl",
+      "urls": [
+        "https://mirror.bazel.build/github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz",
+        "https://github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz"
+      ]
+    },
+    {
+      "name": "platforms",
+      "sha256": "852b71bfa15712cec124e4a57179b6bc95d59fdf5052945f5d550e072501a769",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/platforms/archive/1.0.0.tar.gz"
+      ]
+    },
+    {
+      "name": "prometheus_metrics_model",
+      "sha256": "47c5ea7949f68e7f7b344350c59b6bd31eeb921f0eec6c3a566e27cf1951470c",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/prometheus/client_model/archive/v0.6.2.tar.gz"
+      ]
+    },
+    {
+      "name": "proto_converter",
+      "sha256": "9555d9cf7bd541ea5fdb67d7d6b72ea44da77df3e27b960b4155dc0c6b81d476",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/grpc-ecosystem/proto-converter/archive/1db76535b86b80aa97489a1edcc7009e18b67ab7.zip"
+      ]
+    },
+    {
+      "name": "proto_field_extraction",
+      "sha256": "cba864db90806515afa553aaa2fb3683df2859a7535e53a32cb9619da9cebc59",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/grpc-ecosystem/proto-field-extraction/archive/d5d39f0373e9b6691c32c85929838b1006bcb3fb.zip"
+      ]
+    },
+    {
+      "name": "proto_processing",
+      "sha256": "bac7a0d02fd8533cd5ce6d0f39dc324fc0565702d85a9ee3b65b0be8e7cbdd8d",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/grpc-ecosystem/proto_processing_lib/archive/279353cfab372ac7f268ae529df29c4d546ca18d.zip"
+      ]
+    },
+    {
+      "name": "proxy_wasm_cpp_host",
+      "sha256": "34dac5bcebf0b156e435bf8dd9bdac5be60b95f967c420c680578d73af28c604",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/proxy-wasm/proxy-wasm-cpp-host/archive/f2db56af443571e92a31c0b877106d9ea96e19ef.tar.gz"
+      ]
+    },
+    {
+      "name": "proxy_wasm_cpp_sdk",
+      "sha256": "b560a1da27a0d3ab374527e9c7dfa4fe6493887299945be2762a0518ce35570e",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/proxy-wasm/proxy-wasm-cpp-sdk/archive/e5256b0c5463ea9961965ad5de3e379e00486640.tar.gz"
+      ]
+    },
+    {
+      "name": "proxy_wasm_rust_sdk",
+      "sha256": "e407f6aaf58437d5ea23393823163fd2b6bf4fac6adb6b8ace6561b1a7afeac6",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/proxy-wasm/proxy-wasm-rust-sdk/archive/v0.2.4.tar.gz"
+      ]
+    },
+    {
+      "name": "quiche",
+      "sha256": "f694414b20cabbc495b61c797e44f276226f9a9da9955fd1c07c7aff9d159f68",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/quiche/archive/02cb2a7d57669ee66cffaefb5f57a2410b755205.tar.gz"
+      ]
+    },
+    {
+      "name": "re2",
+      "sha256": "a835fe55fbdcd8e80f38584ab22d0840662c67f2feb36bd679402da9641dc71e",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/re2/releases/download/2024-07-02/re2-2024-07-02.zip"
+      ]
+    },
+    {
+      "name": "rrc__autocfg-1.5.0",
+      "sha256": "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/autocfg/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__cargo-util-schemas-0.3.1",
+      "sha256": "161d4f7828830c7893180528e121e701bb8070b80c0f97f793a930d285b315a6",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/cargo-util-schemas/0.3.1/download"
+      ]
+    },
+    {
+      "name": "rrc__displaydoc-0.2.5",
+      "sha256": "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/displaydoc/0.2.5/download"
+      ]
+    },
+    {
+      "name": "rrc__equivalent-1.0.1",
+      "sha256": "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/equivalent/1.0.1/download"
+      ]
+    },
+    {
+      "name": "rrc__erased-serde-0.4.5",
+      "sha256": "24e2389d65ab4fab27dc2a5de7b191e1f6617d1f1c8855c0dc569c94a4cbb18d",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/erased-serde/0.4.5/download"
+      ]
+    },
+    {
+      "name": "rrc__form_urlencoded-1.2.1",
+      "sha256": "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/form_urlencoded/1.2.1/download"
+      ]
+    },
+    {
+      "name": "rrc__hashbrown-0.15.2",
+      "sha256": "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/hashbrown/0.15.2/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_collections-1.5.0",
+      "sha256": "db2fa452206ebee18c4b5c2274dbf1de17008e874b4dc4f0aea9d01ca79e4526",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_collections/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_locid-1.5.0",
+      "sha256": "13acbb8371917fc971be86fc8057c41a64b521c184808a698c02acc242dbf637",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_locid/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_locid_transform-1.5.0",
+      "sha256": "01d11ac35de8e40fdeda00d9e1e9d92525f3f9d887cdd7aa81d727596788b54e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_locid_transform/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_locid_transform_data-1.5.0",
+      "sha256": "fdc8ff3388f852bede6b579ad4e978ab004f139284d7b28715f773507b946f6e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_locid_transform_data/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_normalizer-1.5.0",
+      "sha256": "19ce3e0da2ec68599d193c93d088142efd7f9c5d6fc9b803774855747dc6a84f",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_normalizer/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_normalizer_data-1.5.0",
+      "sha256": "f8cafbf7aa791e9b22bec55a167906f9e1215fd475cd22adfcf660e03e989516",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_normalizer_data/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_properties-1.5.1",
+      "sha256": "93d6020766cfc6302c15dbbc9c8778c37e62c14427cb7f6e601d849e092aeef5",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_properties/1.5.1/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_properties_data-1.5.0",
+      "sha256": "67a8effbc3dd3e4ba1afa8ad918d5684b8868b3b26500753effea8d2eed19569",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_properties_data/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_provider-1.5.0",
+      "sha256": "6ed421c8a8ef78d3e2dbc98a973be2f3770cb42b606e3ab18d6237c4dfde68d9",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_provider/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__icu_provider_macros-1.5.0",
+      "sha256": "1ec89e9337638ecdc08744df490b221a7399bf8d164eb52a665454e60e075ad6",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/icu_provider_macros/1.5.0/download"
+      ]
+    },
+    {
+      "name": "rrc__idna-1.0.3",
+      "sha256": "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/idna/1.0.3/download"
+      ]
+    },
+    {
+      "name": "rrc__idna_adapter-1.2.0",
+      "sha256": "daca1df1c957320b2cf139ac61e7bd64fed304c5040df000a745aa1de3b4ef71",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/idna_adapter/1.2.0/download"
+      ]
+    },
+    {
+      "name": "rrc__indexmap-2.7.1",
+      "sha256": "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/indexmap/2.7.1/download"
+      ]
+    },
+    {
+      "name": "rrc__litemap-0.7.4",
+      "sha256": "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/litemap/0.7.4/download"
+      ]
+    },
+    {
+      "name": "rrc__num-traits-0.2.19",
+      "sha256": "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/num-traits/0.2.19/download"
+      ]
+    },
+    {
+      "name": "rrc__ordered-float-2.10.1",
+      "sha256": "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/ordered-float/2.10.1/download"
+      ]
+    },
+    {
+      "name": "rrc__pathdiff-0.1.0",
+      "sha256": "a3bf70094d203e07844da868b634207e71bfab254fe713171fae9a6e751ccf31",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/pathdiff/0.1.0/download"
+      ]
+    },
+    {
+      "name": "rrc__percent-encoding-2.3.1",
+      "sha256": "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/percent-encoding/2.3.1/download"
+      ]
+    },
+    {
+      "name": "rrc__proc-macro2-1.0.93",
+      "sha256": "60946a68e5f9d28b0dc1c21bb8a97ee7d018a8b322fa57838ba31cc878e22d99",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/proc-macro2/1.0.93/download"
+      ]
+    },
+    {
+      "name": "rrc__quote-1.0.38",
+      "sha256": "0e4dccaaaf89514f546c693ddc140f729f958c247918a13380cccc6078391acc",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/quote/1.0.38/download"
+      ]
+    },
+    {
+      "name": "rrc__semver-1.0.25",
+      "sha256": "f79dfe2d285b0488816f30e700a7438c5a73d816b5b7d3ac72fbc48b0d185e03",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/semver/1.0.25/download"
+      ]
+    },
+    {
+      "name": "rrc__serde-1.0.217",
+      "sha256": "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/serde/1.0.217/download"
+      ]
+    },
+    {
+      "name": "rrc__serde-untagged-0.1.6",
+      "sha256": "2676ba99bd82f75cae5cbd2c8eda6fa0b8760f18978ea840e980dd5567b5c5b6",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/serde-untagged/0.1.6/download"
+      ]
+    },
+    {
+      "name": "rrc__serde-value-0.7.0",
+      "sha256": "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/serde-value/0.7.0/download"
+      ]
+    },
+    {
+      "name": "rrc__serde_derive-1.0.217",
+      "sha256": "5a9bf7cf98d04a2b28aead066b7496853d4779c9cc183c440dbac457641e19a0",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/serde_derive/1.0.217/download"
+      ]
+    },
+    {
+      "name": "rrc__serde_spanned-0.6.8",
+      "sha256": "87607cb1398ed59d48732e575a4c28a7a8ebf2454b964fe3f224f2afc07909e1",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/serde_spanned/0.6.8/download"
+      ]
+    },
+    {
+      "name": "rrc__smallvec-1.13.2",
+      "sha256": "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/smallvec/1.13.2/download"
+      ]
+    },
+    {
+      "name": "rrc__stable_deref_trait-1.2.0",
+      "sha256": "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/stable_deref_trait/1.2.0/download"
+      ]
+    },
+    {
+      "name": "rrc__syn-2.0.98",
+      "sha256": "36147f1a48ae0ec2b5b3bc5b537d267457555a10dc06f3dbc8cb11ba3006d3b1",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/syn/2.0.98/download"
+      ]
+    },
+    {
+      "name": "rrc__synstructure-0.13.1",
+      "sha256": "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/synstructure/0.13.1/download"
+      ]
+    },
+    {
+      "name": "rrc__thiserror-1.0.69",
+      "sha256": "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/thiserror/1.0.69/download"
+      ]
+    },
+    {
+      "name": "rrc__thiserror-impl-1.0.69",
+      "sha256": "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/thiserror-impl/1.0.69/download"
+      ]
+    },
+    {
+      "name": "rrc__tinystr-0.7.6",
+      "sha256": "9117f5d4db391c1cf6927e7bea3db74b9a1c1add8f7eda9ffd5364f40f57b82f",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/tinystr/0.7.6/download"
+      ]
+    },
+    {
+      "name": "rrc__toml-0.8.20",
+      "sha256": "cd87a5cdd6ffab733b2f74bc4fd7ee5fff6634124999ac278c35fc78c6120148",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/toml/0.8.20/download"
+      ]
+    },
+    {
+      "name": "rrc__toml_datetime-0.6.8",
+      "sha256": "0dd7358ecb8fc2f8d014bf86f6f638ce72ba252a2c3a2572f2a795f1d23efb41",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/toml_datetime/0.6.8/download"
+      ]
+    },
+    {
+      "name": "rrc__toml_edit-0.22.24",
+      "sha256": "17b4795ff5edd201c7cd6dca065ae59972ce77d1b80fa0a84d94950ece7d1474",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/toml_edit/0.22.24/download"
+      ]
+    },
+    {
+      "name": "rrc__typeid-1.0.2",
+      "sha256": "0e13db2e0ccd5e14a544e8a246ba2312cd25223f616442d7f2cb0e3db614236e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/typeid/1.0.2/download"
+      ]
+    },
+    {
+      "name": "rrc__unicode-ident-1.0.16",
+      "sha256": "a210d160f08b701c8721ba1c726c11662f877ea6b7094007e1ca9a1041945034",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/unicode-ident/1.0.16/download"
+      ]
+    },
+    {
+      "name": "rrc__unicode-xid-0.2.6",
+      "sha256": "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/unicode-xid/0.2.6/download"
+      ]
+    },
+    {
+      "name": "rrc__url-2.5.4",
+      "sha256": "32f8b686cadd1473f4bd0117a5d28d36b1ade384ea9b5069a1c40aefed7fda60",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/url/2.5.4/download"
+      ]
+    },
+    {
+      "name": "rrc__utf16_iter-1.0.5",
+      "sha256": "c8232dd3cdaed5356e0f716d285e4b40b932ac434100fe9b7e0e8e935b9e6246",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/utf16_iter/1.0.5/download"
+      ]
+    },
+    {
+      "name": "rrc__utf8_iter-1.0.4",
+      "sha256": "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/utf8_iter/1.0.4/download"
+      ]
+    },
+    {
+      "name": "rrc__winnow-0.7.2",
+      "sha256": "59690dea168f2198d1a3b0cac23b8063efcd11012f10ae4698f284808c8ef603",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/winnow/0.7.2/download"
+      ]
+    },
+    {
+      "name": "rrc__write16-1.0.0",
+      "sha256": "d1890f4022759daae28ed4fe62859b1236caebfc61ede2f63ed4e695f3f6d936",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/write16/1.0.0/download"
+      ]
+    },
+    {
+      "name": "rrc__writeable-0.5.5",
+      "sha256": "1e9df38ee2d2c3c5948ea468a8406ff0db0b29ae1ffde1bcf20ef305bcc95c51",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/writeable/0.5.5/download"
+      ]
+    },
+    {
+      "name": "rrc__yoke-0.7.5",
+      "sha256": "120e6aef9aa629e3d4f52dc8cc43a015c7724194c97dfaf45180d2daf2b77f40",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/yoke/0.7.5/download"
+      ]
+    },
+    {
+      "name": "rrc__yoke-derive-0.7.5",
+      "sha256": "2380878cad4ac9aac1e2435f3eb4020e8374b5f13c296cb75b4620ff8e229154",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/yoke-derive/0.7.5/download"
+      ]
+    },
+    {
+      "name": "rrc__zerofrom-0.1.5",
+      "sha256": "cff3ee08c995dee1859d998dea82f7374f2826091dd9cd47def953cae446cd2e",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/zerofrom/0.1.5/download"
+      ]
+    },
+    {
+      "name": "rrc__zerofrom-derive-0.1.5",
+      "sha256": "595eed982f7d355beb85837f651fa22e90b3c044842dc7f2c2842c086f295808",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/zerofrom-derive/0.1.5/download"
+      ]
+    },
+    {
+      "name": "rrc__zerovec-0.10.4",
+      "sha256": "aa2b893d79df23bfb12d5461018d408ea19dfafe76c2c7ef6d4eba614f8ff079",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/zerovec/0.10.4/download"
+      ]
+    },
+    {
+      "name": "rrc__zerovec-derive-0.10.3",
+      "sha256": "6eafa6dfb17584ea3e2bd6e76e0cc15ad7af12b09abdd1ca55961bed9b1063c6",
+      "source": "rules_rust/cargo/3rdparty/crates/defs.bzl",
+      "urls": [
+        "https://static.crates.io/crates/zerovec-derive/0.10.3/download"
+      ]
+    },
+    {
+      "name": "rules_buf",
+      "sha256": "19d845cedf32c0e74a01af8d0bd904872bddc7905f087318d00b332aa36d3929",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bufbuild/rules_buf/archive/refs/tags/v0.5.2.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_cc",
+      "sha256": "283fa1cdaaf172337898749cf4b9b1ef5ea269da59540954e51fba0e7b8f277a",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_cc/releases/download/0.2.17/rules_cc-0.2.17.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_foreign_cc",
+      "sha256": "32759728913c376ba45b0116869b71b68b1c2ebf8f2bcf7b41222bc07b773d73",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_foreign_cc/archive/0.15.1.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_fuzzing",
+      "sha256": "87adb1357bb5a932fa0de6fed0fc37412490a0c96f5259855008f208cf53a74f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_fuzzing/archive/v0.7.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_java",
+      "sha256": "9de4e178c2c4f98d32aafe5194c3f2b717ae10405caa11bdcb460ac2a6f61516",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_java/releases/download/9.6.1/rules_java-9.6.1.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_license",
+      "sha256": "26d4021f6898e23b82ef953078389dd49ac2b5618ac564ade4ef87cced147b38",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_license/releases/download/1.0.0/rules_license-1.0.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_nodejs",
+      "sha256": "158619723f1d8bd535dd6b93521f4e03cf24a5e107126d05685fbd9540ccad10",
+      "source": "emsdk/deps.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/rules_nodejs/releases/download/v6.3.2/rules_nodejs-v6.3.2.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_pkg",
+      "sha256": "de9c6411e8f1b45dd67ce2b93e9243731aec37df6d65cc20dcd574d2d0b65d0f",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_pkg/archive/1.2.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_proto",
+      "sha256": "14a225870ab4e91869652cfd69ef2028277fc1dc4910d65d353b62d6e0ae21f4",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_proto/archive/refs/tags/7.1.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_proto_grpc",
+      "sha256": "2a0860a336ae836b54671cbbe0710eec17c64ef70c4c5a88ccfd47ea6e3739bd",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/rules-proto-grpc/rules_proto_grpc/releases/download/4.6.0/rules_proto_grpc-4.6.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_python",
+      "sha256": "098ba13578e796c00c853a2161f382647f32eb9a77099e1c88bc5299333d0d6e",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_python/archive/1.9.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_rust",
+      "sha256": "bbc764c252d061281b2359277a4d46480e2dcfaf72afc1ce6e00ada58ccbfd4c",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_rust/releases/download/0.69.0/rules_rust-0.69.0.tar.gz"
+      ]
+    },
+    {
+      "name": "rules_rust_tinyjson",
+      "sha256": "9ab95735ea2c8fd51154d01e39cf13912a78071c2d89abc49a7ef102a7dd725a",
+      "source": "rules_rust/rust/private/repository_utils.bzl",
+      "urls": [
+        "https://static.crates.io/crates/tinyjson/tinyjson-2.5.1.crate"
+      ]
+    },
+    {
+      "name": "rules_shell",
+      "sha256": "3709d1745ba4be4ef054449647b62e424267066eca887bb00dd29242cb8463a0",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazelbuild/rules_shell/releases/download/v0.7.1/rules_shell-v0.7.1.tar.gz"
+      ]
+    },
+    {
+      "name": "shellcheck",
+      "sha256": "cef935ea1088d2b45c5bc3630f8178c91ba367b071af2bfdcd16c042c5efe8ae",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/aignas/rules_shellcheck/archive/0.4.0.tar.gz"
+      ]
+    },
+    {
+      "name": "skywalking_data_collect_protocol",
+      "sha256": "70e63dd30d9dfdcf0a0ef0976e19c7e21fa1411af13ec31452bd1da37e578e35",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/apache/skywalking-data-collect-protocol/archive/v10.4.0.tar.gz"
+      ]
+    },
+    {
+      "name": "spdlog",
+      "sha256": "d8862955c6d74e5846b3f580b1605d2428b11d97a410d86e2fb13e857cd3a744",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/gabime/spdlog/archive/v1.17.0.tar.gz"
+      ]
+    },
+    {
+      "name": "tar.bzl",
+      "sha256": "b47e3c83a0c1440ce335aa1ae18753da6eb7cd551d4946fa303de2abde07e20b",
+      "source": "aspect_bazel_lib/lib/repositories.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/tar.bzl/releases/download/v0.5.1/tar.bzl-v0.5.1.tar.gz"
+      ]
+    },
+    {
+      "name": "tclap",
+      "sha256": "7e87d13734076fa4f626f6144ce9a02717198b3f054341a6886e2107b048b235",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/mirror/tclap/archive/v1.2.5.tar.gz"
+      ]
+    },
+    {
+      "name": "tcmalloc",
+      "sha256": "2a6bef88f8cccda4a63a2f4bb09e655b3ee5ea0a2ce68d16e6ea2d5f5c4be9c1",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/tcmalloc/archive/12f255231938d30493186b0a037feedd70f5a1c1.tar.gz"
+      ]
+    },
+    {
+      "name": "toolchains_llvm",
+      "sha256": "85c341e957ba58482892a8088e4a34391d15bd98917f0993ecb62f008d6986d6",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/toolchains_llvm/releases/download/v1.7.0/toolchains_llvm-v1.7.0.tar.gz"
+      ]
+    },
+    {
+      "name": "v8",
+      "sha256": "09c3d9f796a671fb9630c7190032f00171ce99effd7c80c7aaeba148a7bcbc1b",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/v8/v8/archive/refs/tags/14.6.202.10.tar.gz"
+      ]
+    },
+    {
+      "name": "wuffs",
+      "sha256": "9ca4f5401a76be244362de8b39138f01f2456c444b03584703a9f1db90491ba6",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/google/wuffs-mirror-release-c/archive/refs/tags/v0.4.0-alpha.9.tar.gz"
+      ]
+    },
+    {
+      "name": "xds",
+      "sha256": "82363065ca2c978398d2307fe960c301a0b6655d55981fac017783bba22771d9",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/cncf/xds/archive/8bfbf64dc13ee1a570be4fbdcfccbdd8532463f0.tar.gz"
+      ]
+    },
+    {
+      "name": "xxhash",
+      "sha256": "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/Cyan4973/xxHash/archive/v0.8.3.tar.gz"
+      ]
+    },
+    {
+      "name": "yaml_cpp",
+      "sha256": "25cb043240f828a8c51beb830569634bc7ac603978e0f69d6b63558dadefd49a",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.9.0.tar.gz"
+      ]
+    },
+    {
+      "name": "yq_bzl",
+      "sha256": "b51d82b561a78ab21d265107b0edbf98d68a390b4103992d0b03258bb3819601",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/bazel-contrib/yq.bzl/releases/download/v0.1.1/yq.bzl-v0.1.1.tar.gz"
+      ]
+    },
+    {
+      "name": "zipkin_api",
+      "sha256": "6c8ee2014cf0746ba452e5f2c01f038df60e85eb2d910b226f9aa27ddc0e44cf",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/openzipkin/zipkin-api/archive/1.0.0.tar.gz"
+      ]
+    },
+    {
+      "name": "zlib_ng",
+      "sha256": "6a0561b50b8f5f6434a6a9e667a67026f2b2064a1ffa959c6b2dae320161c2a8",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/zlib-ng/zlib-ng/archive/2.3.2.tar.gz"
+      ]
+    },
+    {
+      "name": "zstd",
+      "sha256": "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3",
+      "source": "repository_locations.bzl",
+      "urls": [
+        "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"
+      ]
+    }
+  ],
+  "excluded": {
+    "antlr4_jar": "prebuilt ANTLR jar; nixpkgs antlr4_13",
+    "cargo_bazel_*": "prebuilt cargo-bazel; built from the rules_rust source",
+    "com_google_protobuf_protoc_*": "prebuilt protoc; Bazel builds protoc from the pinned protobuf source",
+    "emscripten_bin_*, nodejs_*": "prebuilt emsdk and Node.js; not in the envoy-static graph",
+    "fips_*": "prebuilt Go, CMake and Clang for the FIPS build; not built",
+    "go_sdk / go_*": "prebuilt Go 1.24.6; nixpkgs go (go_version = host)",
+    "libcxx_libs_*": "prebuilt libc++; the nixpkgs GCC libstdc++",
+    "llvm_toolchain_llvm": "prebuilt LLVM 18; nixpkgs llvm and clang (BAZEL_LLVM_PATH)",
+    "python3_12_*": "prebuilt CPython 3.12.3; nixpkgs python312",
+    "remotejdk*, remote_java_tools*": "prebuilt JDK and Java tools; no Java rule remains",
+    "rules_buf_toolchains": "prebuilt buf; not in the envoy-static graph",
+    "rust_*__stable_tools": "prebuilt Rust 1.88.0; the fenix 1.88.0 toolchain",
+    "sysroot_linux_*": "prebuilt Debian sysroot; the nixpkgs glibc headers"
+  },
+  "goModules": [
+    {
+      "importpath": "github.com/golang/protobuf",
+      "mod": {
+        "sha256": "738cbb1de96b67a6238ac3b8081cd8b1bfb0daebcf6c9bbe8cbdb6d73baecd19",
+        "url": "https://proxy.golang.org/github.com/golang/protobuf/@v/v1.5.0.mod"
+      },
+      "name": "com_github_golang_protobuf",
+      "sum": "h1:LUVKkCeviFUMKqHa4tXIIij/lbhnMbP7Fn5wKdKkRh4=",
+      "version": "v1.5.0",
+      "zip": {
+        "sha256": "deb3b2ac476a7f74685091fa60c59d50110c7e1d333ea78281422d8441f2411d",
+        "url": "https://proxy.golang.org/github.com/golang/protobuf/@v/v1.5.0.zip"
+      }
+    },
+    {
+      "importpath": "github.com/iancoleman/strcase",
+      "mod": {
+        "sha256": "e6187df34bd00f2fcecd086dd5519cb386756fb82c5894bcf9348b98aa543b13",
+        "url": "https://proxy.golang.org/github.com/iancoleman/strcase/@v/v0.3.0.mod"
+      },
+      "name": "com_github_iancoleman_strcase",
+      "sum": "h1:nTXanmYxhfFAMjZL34Ov6gkzEsSJZ5DbhxWjvSASxEI=",
+      "version": "v0.3.0",
+      "zip": {
+        "sha256": "fe8d071a2f64f2fdf24a0b080a7fd277488bc4840503d7475045070fe50c3f58",
+        "url": "https://proxy.golang.org/github.com/iancoleman/strcase/@v/v0.3.0.zip"
+      }
+    },
+    {
+      "importpath": "github.com/lyft/protoc-gen-star/v2",
+      "mod": {
+        "sha256": "cdad1b869a718e36a5a0759efd5513abb441da3fc09aaae6a57c244597a6b664",
+        "url": "https://proxy.golang.org/github.com/lyft/protoc-gen-star/v2/@v/v2.0.4-0.20230330145011-496ad1ac90a4.mod"
+      },
+      "name": "com_github_lyft_protoc_gen_star_v2",
+      "sum": "h1:sIXJOMrYnQZJu7OB7ANSF4MYri2fTEGIsRLz6LwI4xE=",
+      "version": "v2.0.4-0.20230330145011-496ad1ac90a4",
+      "zip": {
+        "sha256": "d686a45affe55f593f20f4bfa6e83dec3fe67d51bb81346358366ca878a9f02c",
+        "url": "https://proxy.golang.org/github.com/lyft/protoc-gen-star/v2/@v/v2.0.4-0.20230330145011-496ad1ac90a4.zip"
+      }
+    },
+    {
+      "importpath": "github.com/spf13/afero",
+      "mod": {
+        "sha256": "ec0cc6f56328fe1eb862d49d78ff67c3892627d4d4a11b37b4fc3f2249732cf2",
+        "url": "https://proxy.golang.org/github.com/spf13/afero/@v/v1.10.0.mod"
+      },
+      "name": "com_github_spf13_afero",
+      "sum": "h1:EaGW2JJh15aKOejeuJ+wpFSHnbd7GE6Wvp3TsNhb6LY=",
+      "version": "v1.10.0",
+      "zip": {
+        "sha256": "96f549d577731c5f75d5a1b2bf8b937ff4300fab318197776af4f335c0bc0ff6",
+        "url": "https://proxy.golang.org/github.com/spf13/afero/@v/v1.10.0.zip"
+      }
+    },
+    {
+      "importpath": "google.golang.org/protobuf",
+      "mod": {
+        "sha256": "a75c105a852fbd8da8d8cfac09c2eab9a206cfd27ed37c973737e23f632ca96e",
+        "url": "https://proxy.golang.org/google.golang.org/protobuf/@v/v1.36.10.mod"
+      },
+      "name": "org_golang_google_protobuf",
+      "sum": "h1:AYd7cD/uASjIL6Q9LiTjz8JLcrh/88q5UObnmY3aOOE=",
+      "version": "v1.36.10",
+      "zip": {
+        "sha256": "9265fbe7d073ca8571f1a9c4b8e8f20b244c35ad913346892d688e58fe4b1f22",
+        "url": "https://proxy.golang.org/google.golang.org/protobuf/@v/v1.36.10.zip"
+      }
+    },
+    {
+      "importpath": "golang.org/x/mod",
+      "mod": {
+        "sha256": "624567459c6e9947ac4abde0b7034ee61dcbb6a9373f5970094c0bb3e8121964",
+        "url": "https://proxy.golang.org/golang.org/x/mod/@v/v0.9.0.mod"
+      },
+      "name": "org_golang_x_mod",
+      "sum": "h1:KENHtAZL2y3NLMYZeHY9DW8HW8V+kQyJsY/V9JlKvCs=",
+      "version": "v0.9.0",
+      "zip": {
+        "sha256": "ad0b72a29c07f57d92612fdbc2da6891b3988dd98b31d2fdcbe8ddb9c8cc2d52",
+        "url": "https://proxy.golang.org/golang.org/x/mod/@v/v0.9.0.zip"
+      }
+    },
+    {
+      "importpath": "golang.org/x/sys",
+      "mod": {
+        "sha256": "f411814d83a96e86781b1dee41c125b9504da5422dba37cc1d63b016ae39cfe2",
+        "url": "https://proxy.golang.org/golang.org/x/sys/@v/v0.38.0.mod"
+      },
+      "name": "org_golang_x_sys",
+      "sum": "h1:3yZWxaJjBmCWXqhN1qh02AkOnCQ1poK6oF+a7xWL6Gc=",
+      "version": "v0.38.0",
+      "zip": {
+        "sha256": "dacd7c9aa2b298f966822da214c6d601da08f14d41b29032bcac4bc503887a49",
+        "url": "https://proxy.golang.org/golang.org/x/sys/@v/v0.38.0.zip"
+      }
+    },
+    {
+      "importpath": "golang.org/x/text",
+      "mod": {
+        "sha256": "c015af74697b915ad4190be27cf6f5bbe02a158accef0dbcd4a42a10002df496",
+        "url": "https://proxy.golang.org/golang.org/x/text/@v/v0.21.0.mod"
+      },
+      "name": "org_golang_x_text",
+      "sum": "h1:zyQAAkrwaneQ066sspRyJaG9VNi/YJ1NfzcGB3hZ/qo=",
+      "version": "v0.21.0",
+      "zip": {
+        "sha256": "be3db791651af6f2cb0225aa5d5578c23149b2017246ba8e59586080baadd612",
+        "url": "https://proxy.golang.org/golang.org/x/text/@v/v0.21.0.zip"
+      }
+    },
+    {
+      "importpath": "golang.org/x/tools",
+      "mod": {
+        "sha256": "1819b7fc0e1a633cb975b2f74f3e11a649b2dad15d53c18073eb49b687635485",
+        "url": "https://proxy.golang.org/golang.org/x/tools/@v/v0.7.0.mod"
+      },
+      "name": "org_golang_x_tools",
+      "sum": "h1:W4OVu8VVOaIO0yzWMNdepAulS7YfoS3Zabrm8DOXXU4=",
+      "version": "v0.7.0",
+      "zip": {
+        "sha256": "e43c6cc63a85dc30cd1794846ae96a44e81e458e88e436474c3bbbdbef80941a",
+        "url": "https://proxy.golang.org/golang.org/x/tools/@v/v0.7.0.zip"
+      }
+    }
+  ],
+  "rust": {
+    "date": "2025-06-26",
+    "pkg": {
+      "cargo": {
+        "target": {
+          "aarch64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "5aa43865f2002914ce4fca8916b4403bfca62f17e779ad368f6a17553296a58b",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/cargo-1.88.0-aarch64-unknown-linux-gnu.tar.xz"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "856962610ee821648cee32e3d6abac667af7bb7ea6ec6f3d184cc31e66044f6b",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/cargo-1.88.0-x86_64-unknown-linux-gnu.tar.xz"
+          }
+        }
+      },
+      "rust-std": {
+        "target": {
+          "aarch64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "e9ac4ff3c87247a2195fcceddbf1bdeee5c4fd337f014d8f4c4e3ac99002021f",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/rust-std-1.88.0-aarch64-unknown-linux-gnu.tar.xz"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "36d7eacf46bd5199cb433e49a9ed9c9b380d82f8a0ebc05e89b43b51c070c955",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/rust-std-1.88.0-x86_64-unknown-linux-gnu.tar.xz"
+          }
+        }
+      },
+      "rustc": {
+        "target": {
+          "aarch64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "b841d40bb98b2718c6452ec8421a4a8df584fce8d41875bcd9b1af83f52f7d96",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/rustc-1.88.0-aarch64-unknown-linux-gnu.tar.xz"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "available": true,
+            "hash": "b049fd57fce274d10013e2cf0e05f215f68f6580865abc52178f66ae9bf43fd8",
+            "url": "https://static.rust-lang.org/dist/2025-06-26/rustc-1.88.0-x86_64-unknown-linux-gnu.tar.xz"
+          }
+        }
+      }
+    },
+    "version": "1.88.0"
+  }
+}
