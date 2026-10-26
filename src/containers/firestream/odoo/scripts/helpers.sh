@@ -32,6 +32,18 @@ odoo_pg() {
 }
 
 ########################
+# Load the image env defaults (ODOO_VERSION, *_FILE secrets)
+# A Job or a `kubectl exec` does not pass through the entrypoint, which
+# loads them otherwise. Values that are already set win.
+#########################
+odoo_load_image_env() {
+  if [[ -f /opt/firestream/scripts/odoo-env.sh ]]; then
+    # shellcheck disable=SC1091
+    source /opt/firestream/scripts/odoo-env.sh
+  fi
+}
+
+########################
 # Write the backup manifest
 # Arguments:
 #   $1 - manifest path
@@ -65,6 +77,9 @@ EOF
 #########################
 odoo_dump() {
   local out_dir="${1:?output directory required}"
+  # NOTE: without the image env, the manifest records Odoo `unknown`, and
+  # `firestream-odoo-restore` (which loads that env) refuses the archive.
+  odoo_load_image_env
   local db="${ODOO_DATABASE_NAME:-firestream_odoo}"
   local data_dir="${ODOO_DATA_DIR:-/firestream/odoo/data}"
   local ts

@@ -118,16 +118,6 @@ in
       6066   # Spark REST submission port
     ];
 
-    # Distinct host-port offset (spacing 2000) so all 8 canonical apps can run
-    # simultaneously on docker without colliding. spark=28000.
-    #   master      7077 -> host 35077
-    #   master UI   8080 -> host 36080
-    #   worker UI   8081 -> host 36081
-    #   app UI      4040 -> host 32040
-    #   REST submit 6066 -> host 34066
-    #   healthd     9180 -> host 37180
-    compose.hostPortOffset = lib.mkDefault 28000;
-
     # Phase 4: enable in-image firestream-healthd. The master and worker UIs
     # default to 8080 (master) / 8081 (worker). Bitnami's spark image
     # honours `SPARK_MASTER_WEBUI_PORT` / `SPARK_WORKER_WEBUI_PORT` if set,

@@ -1,0 +1,462 @@
+# INDEX.yaml - Cross-reference index for feature docs
+# Generated from YAML frontmatter. Frontmatter in each .md file is the source of truth.
+# Regenerate with: praxis index
+#
+# Schema:
+#   id: FIRE-NNN issue number
+#   path: relative to .praxis
+#   title: human-readable title
+#   type: feature | research | plan | prd | reference | citation
+#   status: backlog | active | reference | shelf | done | archived
+#   priority: critical | high | medium | low
+#   tags: controlled vocabulary list
+
+features:
+  - id: FIRE-001
+    path: work/praxis_workspace_scaffolding.md
+    title: "Praxis workspace scaffolding"
+    type: feature
+    status: done
+    priority: medium
+    tags: [add]
+
+  - id: FIRE-002
+    path: work/chart_container_eval_nix_python_workspace_lib_tests.md
+    title: "Chart + container eval nix + python workspace lib tests"
+    type: feature
+    status: done
+    priority: medium
+    tags: [add]
+
+  - id: FIRE-003
+    path: work/odoo_python_dependencies_example.md
+    title: "Odoo python dependencies example"
+    type: feature
+    status: done
+    priority: medium
+    tags: [add]
+
+  - id: FIRE-004
+    path: work/17_small_changes.md
+    title: "17 small changes"
+    type: feature
+    status: done
+    priority: medium
+    tags: [ref]
+
+  - id: FIRE-005
+    path: work/odoo_chart_backup_and_e2e_support.md
+    title: "Odoo chart, backup, and e2e support"
+    type: feature
+    status: done
+    priority: medium
+    tags: [add]
+
+  - id: FIRE-006
+    path: work/8_small_changes.md
+    title: "8 small changes"
+    type: feature
+    status: done
+    priority: medium
+    tags: [ref]
+
+  - id: FIRE-007
+    path: work/odoo_backup_managed_settings_support.md
+    title: "Odoo backup + managed settings support"
+    type: feature
+    status: done
+    priority: medium
+    tags: [add]
+
+  - id: FIRE-008
+    path: work/chart_nix_default_cleanup_across_apps.md
+    title: "Chart nix default cleanup across apps"
+    type: feature
+    status: done
+    priority: medium
+    tags: [ref]
+
+  - id: FIRE-009
+    path: work/supabase_self_hosted_stack_epic.md
+    title: "Self-hosted Supabase stack packaged with Nix"
+    type: plan
+    status: active
+    priority: high
+    tags: [epic, supabase]
+
+  - id: FIRE-010
+    path: research/supabase_spike_elixir_build.md
+    title: "Spike: Nix build of Realtime and Supavisor (Elixir)"
+    type: research
+    status: done
+    priority: high
+    tags: [phase-0, spike, supabase]
+
+  - id: FIRE-011
+    path: research/supabase_spike_studio_build.md
+    title: "Spike: Nix build of Supabase Studio from the monorepo"
+    type: research
+    status: done
+    priority: high
+    tags: [phase-0, spike, supabase]
+
+  - id: FIRE-012
+    path: research/supabase_spike_postgres_migrations.md
+    title: "Spike: Supabase migrations on the firestream Postgres image"
+    type: research
+    status: done
+    priority: high
+    tags: [phase-0, spike, supabase]
+
+  - id: FIRE-013
+    path: research/supabase_spike_storage_seaweedfs.md
+    title: "Spike: Supabase Storage on SeaweedFS"
+    type: research
+    status: done
+    priority: high
+    tags: [phase-0, spike, supabase]
+
+  - id: FIRE-014
+    path: work/supabase_vault_extension_package.md
+    title: "Package the supautils, supabase_vault and plan_filter Postgres extensions"
+    type: feature
+    status: done
+    priority: high
+    tags: [phase-1, postgresql, supabase]
+
+  - id: FIRE-015
+    path: work/supabase_postgres_image_variant.md
+    title: "Postgres extensions option and Supabase image variant"
+    type: feature
+    status: done
+    priority: high
+    tags: [phase-1, postgresql, supabase]
+
+  - id: FIRE-016
+    path: work/supabase_postgres_migrations.md
+    title: "Vendor the Supabase init SQL and migrations, and run them in initFn"
+    type: feature
+    status: done
+    priority: high
+    tags: [phase-1, postgresql, supabase]
+
+  - id: FIRE-017
+    path: work/beam_container_factory.md
+    title: "Elixir/BEAM container factory"
+    type: feature
+    status: done
+    priority: high
+    tags: [nix, phase-1, supabase]
+
+  - id: FIRE-018
+    path: work/supabase_secret_generation.md
+    title: "Supabase secret and key generation (JWT, anon, service, sb_ keys)"
+    type: feature
+    status: done
+    priority: high
+    tags: [phase-1, secrets, supabase]
+
+  - id: FIRE-019
+    path: work/supabase_auth_image.md
+    title: "Supabase Auth (GoTrue) image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-020
+    path: work/supabase_postgrest_image.md
+    title: "PostgREST image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-021
+    path: work/supabase_envoy_gateway_image.md
+    title: "Envoy gateway image and Supabase routes"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-022
+    path: work/supabase_imgproxy_image.md
+    title: "imgproxy image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-023
+    path: work/supabase_storage_image.md
+    title: "Storage API image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-024
+    path: work/supabase_postgres_meta_image.md
+    title: "postgres-meta image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-025
+    path: work/supabase_studio_image.md
+    title: "Studio image"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-026
+    path: work/supabase_realtime_image.md
+    title: "Realtime image and tenant seed"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-027
+    path: work/supabase_supavisor_image.md
+    title: "Supavisor image and pooler tenant seed"
+    type: feature
+    status: done
+    priority: high
+    tags: [container, phase-2, supabase]
+
+  - id: FIRE-028
+    path: work/supabase_compose_stack.md
+    title: "Supabase compose stack"
+    type: feature
+    status: done
+    priority: medium
+    tags: [compose, phase-3, supabase]
+
+  - id: FIRE-029
+    path: work/supabase_helm_chart.md
+    title: "Supabase Helm chart and firestreamStacks.supabase"
+    type: feature
+    status: done
+    priority: medium
+    tags: [chart, phase-3, supabase]
+
+  - id: FIRE-030
+    path: work/supabase_e2e_and_ci.md
+    title: "Supabase e2e (docker and k8s) and CI profile phases"
+    type: feature
+    status: done
+    priority: medium
+    tags: [e2e, phase-3, supabase]
+
+  - id: FIRE-031
+    path: work/supabase_documentation.md
+    title: "Supabase documentation"
+    type: feature
+    status: done
+    priority: medium
+    tags: [docs, phase-3, supabase]
+
+  - id: FIRE-032
+    path: work/supabase_remove_ifd.md
+    title: "Remove import-from-derivation from the Supabase builds"
+    type: feature
+    status: done
+    priority: high
+    tags: [nix, phase-2, supabase]
+
+  - id: FIRE-033
+    path: work/supabase_followups_names_and_secret.md
+    title: "Supabase follow-ups: image key names and the chart key override"
+    type: feature
+    status: done
+    priority: medium
+    tags: [phase-3, supabase]
+
+  - id: FIRE-034
+    path: work/e2e_clean_setup_teardown_epic.md
+    title: "Clean e2e setup and teardown"
+    type: plan
+    status: active
+    priority: high
+    tags: [e2e, epic]
+
+  - id: FIRE-035
+    path: work/e2e_a_shared_core.md
+    title: "E2E-A: shared run identity, lock, signal cleanup, sweeper and leak check"
+    type: feature
+    status: done
+    priority: high
+    tags: [e2e]
+
+  - id: FIRE-036
+    path: work/e2e_b_k3d_harness.md
+    title: "E2E-B: k3d harness teardown order, early guard, kubeconfig isolation"
+    type: feature
+    status: done
+    priority: high
+    tags: [e2e, k3d]
+
+  - id: FIRE-037
+    path: work/e2e_c_docker_harness.md
+    title: "E2E-C: Docker harness project names, early guard, egress helper, dangling images"
+    type: feature
+    status: active
+    priority: high
+    tags: [e2e, docker]
+
+  - id: FIRE-038
+    path: work/e2e_e_host_cleanup.md
+    title: "E2E-E: one-time cleanup of host leftovers"
+    type: feature
+    status: done
+    priority: medium
+    tags: [e2e]
+
+  - id: FIRE-039
+    path: work/e2e_d_make_ci_tests_docs.md
+    title: "E2E-D: make targets, CI, cleanup tests and docs"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [e2e]
+
+  - id: FIRE-040
+    path: research/supabase_spike_reproducible_gateway.md
+    title: "Spike: reproducible Supabase gateway (Envoy deps or nginx variant)"
+    type: research
+    status: done
+    priority: high
+    tags: [envoy, spike, supabase]
+
+  - id: FIRE-041
+    path: work/supabase_pinned_source_builds_epic.md
+    title: "Pinned source builds for Supabase"
+    type: plan
+    status: active
+    priority: high
+    tags: [epic, nix, supabase]
+
+  - id: FIRE-042
+    path: work/pinned_p0_policy_and_scan.md
+    title: "P0: pinning policy doc and the no-prebuilt-binaries check"
+    type: feature
+    status: done
+    priority: high
+    tags: [nix, supabase]
+
+  - id: FIRE-043
+    path: work/pinned_p1_commit_sha.md
+    title: "P1: pin every Supabase input to a commit SHA"
+    type: feature
+    status: done
+    priority: high
+    tags: [nix, supabase]
+
+  - id: FIRE-044
+    path: work/pinned_p2_envoy.md
+    title: "P2: Envoy 1.39.1 with per-dependency pins and an offline Bazel build"
+    type: feature
+    status: active
+    priority: high
+    tags: [envoy, nix, supabase]
+
+  - id: FIRE-045
+    path: work/pinned_p3_node_images.md
+    title: "P3: Node images without prebuilt binaries"
+    type: feature
+    status: done
+    priority: high
+    tags: [nix, node, supabase]
+
+  - id: FIRE-046
+    path: work/pinned_p4_elixir_images.md
+    title: "P4: Elixir images with per-package Mix deps and source-built tailwind"
+    type: feature
+    status: done
+    priority: high
+    tags: [beam, nix, supabase]
+
+  - id: FIRE-047
+    path: work/pinned_p5_verification.md
+    title: "P5: pinning verification, reproducibility check and Supabase e2e"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [supabase, nix, e2e]
+
+  - id: FIRE-048
+    path: work/pinned_p4b_realtime_npm_assets.md
+    title: "P4b: Realtime npm assets through pnpm2nix, with no binary fetched"
+    type: feature
+    status: done
+    priority: medium
+    tags: [beam, nix, node, supabase]
+
+  - id: FIRE-049
+    path: work/sbom_dependabot_epic.md
+    title: "Full fleet SBOM and a Dependabot config generated from Nix"
+    type: plan
+    status: backlog
+    priority: high
+    tags: [ci, epic, nix, sbom]
+
+  - id: FIRE-050
+    path: work/sbom_s1_canonical_containers.md
+    title: "S1: one canonical container list for the SBOM and the CI build phase"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [sbom, nix, ci]
+
+  - id: FIRE-051
+    path: work/sbom_s2_sbom_inputs_seam.md
+    title: "S2: sbomInputs seam on every builder, and a metadata name for each image"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [sbom, nix]
+
+  - id: FIRE-052
+    path: work/sbom_s3_vib_components.md
+    title: "S3: firestream-vib makes ecosystem components, nix licenses and the MIT top-level license"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [sbom, rust]
+
+  - id: FIRE-053
+    path: work/sbom_s4_npm_no_hash.md
+    title: "S4: build the Next.js npm lockfiles with importNpmLock, with no npmDepsHash"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [sbom, nix, node]
+
+  - id: FIRE-054
+    path: work/sbom_s5_coverage_check.md
+    title: "S5: required SBOM coverage check in verify"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [sbom, nix, ci]
+
+  - id: FIRE-055
+    path: work/sbom_s6_dependabot_generator.md
+    title: "S6: generate /.github/dependabot.yml from Nix, with a drift and schema check"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [dependabot, nix, ci]
+
+  - id: FIRE-056
+    path: work/sbom_s7_make_ci_wiring.md
+    title: "S7: wire the SBOM and Dependabot into make ci, the PR gate and CLAUDE.md"
+    type: feature
+    status: backlog
+    priority: high
+    tags: [dependabot, sbom, ci, docs]
+

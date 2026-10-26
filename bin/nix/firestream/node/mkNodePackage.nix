@@ -22,15 +22,19 @@
 let
   # Detect package manager from source
   # Returns "pnpm" if pnpm-lock.yaml exists, otherwise "npm"
+  # WARNING: keep path concatenation in both detectors. "${src}/…" copies a
+  # local `src` into the store at evaluation time, and `nix flake check
+  # --no-build` then fails with "path … is not valid" after a garbage
+  # collection removes that copy.
   detectPackageManager = src:
-    if builtins.pathExists "${src}/pnpm-lock.yaml"
+    if builtins.pathExists (src + "/pnpm-lock.yaml")
     then "pnpm"
     else "npm";
 
   # Detect TypeScript from source
   # Returns true if tsconfig.json exists
   hasTypeScript = src:
-    builtins.pathExists "${src}/tsconfig.json";
+    builtins.pathExists (src + "/tsconfig.json");
 
   # Default Node.js version
   defaultNodejs = pkgs.nodejs_22;

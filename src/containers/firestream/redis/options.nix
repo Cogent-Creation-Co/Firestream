@@ -112,12 +112,6 @@
 
     exposedPorts = lib.mkDefault [ 6379 ];
 
-    # Distinct host-port offset (spacing 2000) so all 8 canonical apps can run
-    # simultaneously on docker without colliding. redis=24000.
-    #   redis   6379 -> host 30379
-    #   healthd 9180 -> host 33180
-    compose.hostPortOffset = lib.mkDefault 24000;
-
     # Phase 4: enable in-image firestream-healthd. The readinessCmd is passed
     # to healthd as a single string and evaluated via `sh -c` at probe time,
     # so `${REDIS_PORT_NUMBER:-6379}` expands at runtime against the

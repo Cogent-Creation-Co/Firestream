@@ -481,9 +481,10 @@ let
   runtimeBinDeps = with pkgs; [
     coreutils bash gnused gnugrep gawk findutils which
     postgresql git curl netcat-gnu
-    # Dump/restore helpers (scripts/helpers.sh): tar for the archive, pgrep for
-    # the running-server guard, aws for the S3 CronJob and restore Job.
-    gnutar procps awscli2
+    # Dump/restore helpers (scripts/helpers.sh): tar and gzip for the archive
+    # (`tar -z` execs gzip from PATH), pgrep for the running-server guard, aws
+    # for the S3 CronJob and restore Job.
+    gnutar gzip procps awscli2
     wkhtmltopdf
     nodejs_22
     nodePackages.rtlcss

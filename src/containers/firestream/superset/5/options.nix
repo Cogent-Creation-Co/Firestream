@@ -178,16 +178,6 @@
       projectName = "firestream-superset";
       dependencies = [ "postgresql" "redis" ];
 
-      # +32000 host-port offset. Each of the 8 canonical apps gets a DISTINCT
-      # offset (spacing 2000) so all 8 can run simultaneously on docker without
-      # host-port collisions. superset=32000.
-      #   postgresql 5432 -> host 37432
-      #   redis      6379 -> host 38379
-      #   superset   8088 -> host 40088
-      #   flower     5555 -> host 37555
-      #   healthd    9180 -> host 41180
-      hostPortOffset = 32000;
-
       sharedEnv = {
         SUPERSET_DATABASE_HOST = "postgresql";
         SUPERSET_DATABASE_NAME = "superset";
@@ -210,7 +200,7 @@
             POSTGRESQL_PASSWORD = "superset";
             ALLOW_EMPTY_PASSWORD = "no";
           };
-          ports = [ "5432:5432" ];
+          ports = [ 5432 ];
           volumes = [ "postgresql_data:/firestream/postgresql" ];
           healthcheck = {
             test = [
@@ -228,7 +218,7 @@
         redis = {
           image = "@redis";
           env.ALLOW_EMPTY_PASSWORD = "yes";
-          ports = [ "6379:6379" ];
+          ports = [ 6379 ];
           volumes = [ "redis_data:/firestream/redis/data" ];
           healthcheck = {
             test = [
@@ -246,7 +236,7 @@
         superset = {
           # Own firestream-superset image (image = null inferred when omitted);
           # publish webserver + flower + healthd so the e2e harness can probe.
-          ports = [ "8088:8088" "5555:5555" "9180:9180" ];
+          ports = [ 8088 5555 9180 ];
           dependsOn = [ "postgresql" "redis" ];
         };
       };

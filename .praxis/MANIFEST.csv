@@ -1,0 +1,57 @@
+id,path,title,type,status,priority,tags
+FIRE-001,work/praxis_workspace_scaffolding.md,Praxis workspace scaffolding,feature,done,medium,add
+FIRE-002,work/chart_container_eval_nix_python_workspace_lib_tests.md,Chart + container eval nix + python workspace lib tests,feature,done,medium,add
+FIRE-003,work/odoo_python_dependencies_example.md,Odoo python dependencies example,feature,done,medium,add
+FIRE-004,work/17_small_changes.md,17 small changes,feature,done,medium,ref
+FIRE-005,work/odoo_chart_backup_and_e2e_support.md,"Odoo chart, backup, and e2e support",feature,done,medium,add
+FIRE-006,work/8_small_changes.md,8 small changes,feature,done,medium,ref
+FIRE-007,work/odoo_backup_managed_settings_support.md,Odoo backup + managed settings support,feature,done,medium,add
+FIRE-008,work/chart_nix_default_cleanup_across_apps.md,Chart nix default cleanup across apps,feature,done,medium,ref
+FIRE-009,work/supabase_self_hosted_stack_epic.md,Self-hosted Supabase stack packaged with Nix,plan,active,high,epic; supabase
+FIRE-010,research/supabase_spike_elixir_build.md,Spike: Nix build of Realtime and Supavisor (Elixir),research,done,high,phase-0; spike; supabase
+FIRE-011,research/supabase_spike_studio_build.md,Spike: Nix build of Supabase Studio from the monorepo,research,done,high,phase-0; spike; supabase
+FIRE-012,research/supabase_spike_postgres_migrations.md,Spike: Supabase migrations on the firestream Postgres image,research,done,high,phase-0; spike; supabase
+FIRE-013,research/supabase_spike_storage_seaweedfs.md,Spike: Supabase Storage on SeaweedFS,research,done,high,phase-0; spike; supabase
+FIRE-014,work/supabase_vault_extension_package.md,"Package the supautils, supabase_vault and plan_filter Postgres extensions",feature,done,high,phase-1; postgresql; supabase
+FIRE-015,work/supabase_postgres_image_variant.md,Postgres extensions option and Supabase image variant,feature,done,high,phase-1; postgresql; supabase
+FIRE-016,work/supabase_postgres_migrations.md,"Vendor the Supabase init SQL and migrations, and run them in initFn",feature,done,high,phase-1; postgresql; supabase
+FIRE-017,work/beam_container_factory.md,Elixir/BEAM container factory,feature,done,high,nix; phase-1; supabase
+FIRE-018,work/supabase_secret_generation.md,"Supabase secret and key generation (JWT, anon, service, sb_ keys)",feature,done,high,phase-1; secrets; supabase
+FIRE-019,work/supabase_auth_image.md,Supabase Auth (GoTrue) image,feature,done,high,container; phase-2; supabase
+FIRE-020,work/supabase_postgrest_image.md,PostgREST image,feature,done,high,container; phase-2; supabase
+FIRE-021,work/supabase_envoy_gateway_image.md,Envoy gateway image and Supabase routes,feature,done,high,container; phase-2; supabase
+FIRE-022,work/supabase_imgproxy_image.md,imgproxy image,feature,done,high,container; phase-2; supabase
+FIRE-023,work/supabase_storage_image.md,Storage API image,feature,done,high,container; phase-2; supabase
+FIRE-024,work/supabase_postgres_meta_image.md,postgres-meta image,feature,done,high,container; phase-2; supabase
+FIRE-025,work/supabase_studio_image.md,Studio image,feature,done,high,container; phase-2; supabase
+FIRE-026,work/supabase_realtime_image.md,Realtime image and tenant seed,feature,done,high,container; phase-2; supabase
+FIRE-027,work/supabase_supavisor_image.md,Supavisor image and pooler tenant seed,feature,done,high,container; phase-2; supabase
+FIRE-028,work/supabase_compose_stack.md,Supabase compose stack,feature,done,medium,compose; phase-3; supabase
+FIRE-029,work/supabase_helm_chart.md,Supabase Helm chart and firestreamStacks.supabase,feature,done,medium,chart; phase-3; supabase
+FIRE-030,work/supabase_e2e_and_ci.md,Supabase e2e (docker and k8s) and CI profile phases,feature,done,medium,e2e; phase-3; supabase
+FIRE-031,work/supabase_documentation.md,Supabase documentation,feature,done,medium,docs; phase-3; supabase
+FIRE-032,work/supabase_remove_ifd.md,Remove import-from-derivation from the Supabase builds,feature,done,high,nix; phase-2; supabase
+FIRE-033,work/supabase_followups_names_and_secret.md,Supabase follow-ups: image key names and the chart key override,feature,done,medium,phase-3; supabase
+FIRE-034,work/e2e_clean_setup_teardown_epic.md,Clean e2e setup and teardown,plan,active,high,e2e; epic
+FIRE-035,work/e2e_a_shared_core.md,"E2E-A: shared run identity, lock, signal cleanup, sweeper and leak check",feature,done,high,e2e
+FIRE-036,work/e2e_b_k3d_harness.md,"E2E-B: k3d harness teardown order, early guard, kubeconfig isolation",feature,done,high,e2e; k3d
+FIRE-037,work/e2e_c_docker_harness.md,"E2E-C: Docker harness project names, early guard, egress helper, dangling images",feature,active,high,e2e; docker
+FIRE-038,work/e2e_e_host_cleanup.md,E2E-E: one-time cleanup of host leftovers,feature,done,medium,e2e
+FIRE-039,work/e2e_d_make_ci_tests_docs.md,"E2E-D: make targets, CI, cleanup tests and docs",feature,backlog,high,e2e
+FIRE-040,research/supabase_spike_reproducible_gateway.md,Spike: reproducible Supabase gateway (Envoy deps or nginx variant),research,done,high,envoy; spike; supabase
+FIRE-041,work/supabase_pinned_source_builds_epic.md,Pinned source builds for Supabase,plan,active,high,epic; nix; supabase
+FIRE-042,work/pinned_p0_policy_and_scan.md,P0: pinning policy doc and the no-prebuilt-binaries check,feature,done,high,nix; supabase
+FIRE-043,work/pinned_p1_commit_sha.md,P1: pin every Supabase input to a commit SHA,feature,done,high,nix; supabase
+FIRE-044,work/pinned_p2_envoy.md,P2: Envoy 1.39.1 with per-dependency pins and an offline Bazel build,feature,active,high,envoy; nix; supabase
+FIRE-045,work/pinned_p3_node_images.md,P3: Node images without prebuilt binaries,feature,done,high,nix; node; supabase
+FIRE-046,work/pinned_p4_elixir_images.md,P4: Elixir images with per-package Mix deps and source-built tailwind,feature,done,high,beam; nix; supabase
+FIRE-047,work/pinned_p5_verification.md,"P5: pinning verification, reproducibility check and Supabase e2e",feature,backlog,high,supabase; nix; e2e
+FIRE-048,work/pinned_p4b_realtime_npm_assets.md,"P4b: Realtime npm assets through pnpm2nix, with no binary fetched",feature,done,medium,beam; nix; node; supabase
+FIRE-049,work/sbom_dependabot_epic.md,Full fleet SBOM and a Dependabot config generated from Nix,plan,backlog,high,ci; epic; nix; sbom
+FIRE-050,work/sbom_s1_canonical_containers.md,S1: one canonical container list for the SBOM and the CI build phase,feature,backlog,high,sbom; nix; ci
+FIRE-051,work/sbom_s2_sbom_inputs_seam.md,"S2: sbomInputs seam on every builder, and a metadata name for each image",feature,backlog,high,sbom; nix
+FIRE-052,work/sbom_s3_vib_components.md,"S3: firestream-vib makes ecosystem components, nix licenses and the MIT top-level license",feature,backlog,high,sbom; rust
+FIRE-053,work/sbom_s4_npm_no_hash.md,"S4: build the Next.js npm lockfiles with importNpmLock, with no npmDepsHash",feature,backlog,high,sbom; nix; node
+FIRE-054,work/sbom_s5_coverage_check.md,S5: required SBOM coverage check in verify,feature,backlog,high,sbom; nix; ci
+FIRE-055,work/sbom_s6_dependabot_generator.md,"S6: generate /.github/dependabot.yml from Nix, with a drift and schema check",feature,backlog,high,dependabot; nix; ci
+FIRE-056,work/sbom_s7_make_ci_wiring.md,"S7: wire the SBOM and Dependabot into make ci, the PR gate and CLAUDE.md",feature,backlog,high,dependabot; sbom; ci; docs

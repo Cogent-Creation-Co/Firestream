@@ -674,15 +674,6 @@ in
       projectName = "firestream-odoo";
       dependencies = [ "postgresql" ];
 
-      # +34000 host-port offset. Each of the 8 canonical apps gets a DISTINCT
-      # offset (spacing 2000) so all 8 can run simultaneously on docker without
-      # host-port collisions. odoo=34000.
-      #   postgresql 5432 -> host 39432
-      #   odoo       8069 -> host 42069
-      #   odoo gevent 8072 -> host 42072
-      #   healthd    9180 -> host 43180
-      hostPortOffset = 34000;
-
       sharedEnv = {
         ODOO_DATABASE_HOST = "postgresql";
         ODOO_DATABASE_NAME = "firestream_odoo";
@@ -709,7 +700,7 @@ in
             POSTGRESQL_PASSWORD = "odoo";
             ALLOW_EMPTY_PASSWORD = "no";
           };
-          ports = [ "5432:5432" ];
+          ports = [ 5432 ];
           volumes = [ "postgresql_data:/firestream/postgresql" ];
           healthcheck = {
             test = [
@@ -726,7 +717,7 @@ in
         };
         odoo = {
           # Own firestream-odoo image; publish web + longpolling + healthd.
-          ports = [ "8069:8069" "8072:8072" "9180:9180" ];
+          ports = [ 8069 8072 9180 ];
           dependsOn = [ "postgresql" ];
           # Mount the parent, matching the image VOLUME in module.nix and the
           # chart's mountPath. Covers filestore + .app_initialized + .state.

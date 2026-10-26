@@ -93,6 +93,24 @@ are: `airflow`, `postgresql`, `redis`, `kafka`, `spark`, `jupyterhub`, `superset
 `seaweedfs`, `nextjs` and `nginx` follow the same shape from non-Bitnami chart forks;
 `cloudflared` is the chart-only app described in §1.
 
+`supabase` is the one **multi-image app**. It has ten images, one chart and one compose
+stack:
+
+- Images: `supabase-postgres` (the `postgresql` container with the Supabase extensions and
+  migrations), `supabase-auth`, `supabase-postgrest`, `supabase-realtime`, `supabase-supavisor`,
+  `supabase-postgres-meta`, `supabase-storage`, `supabase-imgproxy`, `supabase-studio` and `supabase-envoy`.
+  Each is an ordinary `packages.<image>` / `firestreamImages.<image>` entry.
+- Chart: `packages.supabase-chart` and `packages.supabase-base-chart`, from the non-Bitnami
+  fork of supabase-community/supabase-kubernetes in `src/charts/firestream/supabase/`. Its
+  `_meta.containerRefs` has one slot per image (`componentPath = [ "image" <component> ]`).
+  The stack `firestreamStacks.supabase` is `[ seaweedfs supabase ]`.
+- Compose: the stack is declared on the gateway image
+  (`src/containers/firestream/supabase-envoy/compose.nix`), so compose.nix emits
+  `supabase-envoy-compose`; `nix/flake-modules/supabase.nix` publishes it as
+  `packages.supabase-compose` and `apps.supabase-up` / `apps.supabase-down`.
+
+See `docs/supabase.md` (use) and `docs/supabase-maintainer.md` (upstream sync).
+
 | Output | Flake attribute(s) | Produced from |
 |--------|--------------------|---------------|
 | Container image | `packages.<app>`, `firestreamImages.<app>` | `src/containers/firestream/<app>/module.nix` via `mkPythonContainerModule` / `mkContainerModule` (`bin/nix/firestream/containers/base.nix`, `apps/base.nix`) |
@@ -221,12 +239,14 @@ evaluated container module that drives the chart overlay, so the compose image t
 match what the flake builds. It provides:
 
 - `packages.<app>-compose` — derivation holding `docker-compose.yml` + `README.md`, with
-  `passthru` = `{ composeFile; projectName; hostPorts; buildList; healthHostPort; }`.
+  `passthru` = `{ composeFile; projectName; hostPorts; portMap; buildList; healthHostPort; }`.
+  `portMap` gives the host port of each published container port, per compose service.
 - `apps.<app>-up` / `apps.<app>-down` — build+load the required images, then `docker compose
   up -d` / `down`.
 
 Compose is a **first-class, co-equal output**, not an afterthought: same image, same ports
-(with a host-port offset so multiple stacks coexist), healthchecks synthesized from the
+(host ports from the registry `bin/nix/firestream/ports.nix`, so every stack can run at the
+same time; see [ports.md](ports.md)), healthchecks synthesized from the
 container's `health.enable`, and `depends_on` ordering. This is what makes the flake usable
 locally without Kubernetes.
 
@@ -320,7 +340,10 @@ To add `<app>`, create:
      `packages.<app>-chart`, `firestreamCharts.<app>`, `firestreamChartImages.<app>`.
      Use `charts/airflow.nix` as the template.
 
-3. **Compose** — no per-app work: `compose.nix` iterates `firestreamImages` automatically.
+3. **Compose** — `compose.nix` iterates `firestreamImages` automatically. Add one row to
+   `bin/nix/firestream/ports.nix` for each published container port, in a new block for
+   the app, and copy the new table into `docs/ports.md`. `checks.<sys>.firestream-port-registry`
+   fails until each published port has a row.
 
 ---
 

@@ -84,8 +84,16 @@ pub fn run_pg_backup_roundtrip() {
         return;
     }
 
-    // ---- 3. process-wide mutex ----
+    // ---- 3. signal handler, process-wide mutex, host-wide lock ----
+    firestream_e2e_core::cleanup::install_signal_handler()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] install signal handler: {:#}", FILTER, e));
     let _guard = harness_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _host_lock = firestream_e2e_core::lock::HostLock::acquire()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] acquire host e2e lock: {:#}", FILTER, e));
+
+    // The rest of the pipeline lives in its own block so the cluster/release
+    // guards drop (and tear everything down) BEFORE the leak check below runs.
+    {
 
     // ---- 4. cluster ----
     let handle = match cluster::create_cluster(FILTER) {
@@ -243,6 +251,10 @@ pub fn run_pg_backup_roundtrip() {
     eprintln!("[e2e-k8s:{}] round-trip OK: seed -> backup -> drop -> restore -> assert", FILTER);
     // Guards drop in reverse declaration order: pg release, s3 release,
     // then the cluster. Namespace deletes reap the backup/restore Jobs.
+    }
+
+    // ---- 12. leak check ----
+    crate::harness::check_for_leaks(FILTER);
 }
 
 /// Wait for a release's pods to be Ready, then run its readiness probe
