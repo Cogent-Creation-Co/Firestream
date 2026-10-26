@@ -19,7 +19,7 @@
 // | Var                            | Meaning                                                                           | Default          |
 // |--------------------------------|-----------------------------------------------------------------------------------|------------------|
 // | `FIRESTREAM_E2E_STACKS`        | CSV subset of canonical stack names; `all` ⇒ every key                            | canonical set    |
-// | `FIRESTREAM_E2E_KEEP`          | `1` ⇒ skip teardown; leave stack(s) running                                       | unset            |
+// | `FIRESTREAM_E2E_KEEP`          | `1` ⇒ skip teardown and leak check; print `make e2e-sweep RUN=<id>`              | unset            |
 // | `FIRESTREAM_E2E_STRICT`        | `1` ⇒ skip-gate failure (no nix/docker) becomes a hard panic                      | unset            |
 // | `FIRESTREAM_E2E_TIMEOUT_SECS`  | Per-stack readiness deadline (does NOT bound build time)                          | `300`            |
 // | `FIRESTREAM_E2E_PREBUILD`      | `1` ⇒ parallel `nix run .#<image>-image -- --load` outside the global lock        | unset            |
@@ -31,7 +31,8 @@
 // docker-harness-local because the next backend (k8s, Phase 2+) uses
 // different mechanisms for image preload and health-endpoint discovery.
 
-use std::path::PathBuf;
+use std::panic::AssertUnwindSafe;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -39,8 +40,12 @@ use std::time::{Duration, Instant};
 use firestream_e2e_core::env::{
     docker_daemon_check, env_keep, env_strict, env_timeout_secs, selected, should_skip,
 };
-use firestream_e2e_core::guard::wait_with_budget;
+use firestream_e2e_core::cleanup::{self, Registration};
+use firestream_e2e_core::guard::{TEARDOWN_BUDGET, wait_with_budget};
+use firestream_e2e_core::leak;
+use firestream_e2e_core::lock::HostLock;
 use firestream_e2e_core::retry::retry_until_sync;
+use firestream_e2e_core::run_id::RunId;
 
 use crate::probes::{self, Probe, ProbeCtx};
 use crate::stacks;
@@ -212,13 +217,29 @@ fn resolve_stack(stack: &str) -> anyhow::Result<StackInfo> {
 
 // ----- nix run wrappers -----
 
-fn nix_run_up(stack: &str) -> anyhow::Result<()> {
-    let status = Command::new("nix")
-        .args(["run", &format!(".#{}-up", stack)])
+/// Variable that the `<stack>-up` and `<stack>-down` apps read for the
+/// compose project name (`nix/flake-modules/compose.nix`).
+const COMPOSE_PROJECT_ENV: &str = "FIRESTREAM_COMPOSE_PROJECT";
+
+/// `down` flags for every harness teardown. The `-down` app itself keeps
+/// volumes by default, which is right for a dev stack and wrong for a test.
+const FULL_DOWN: [&str; 2] = ["-v", "--remove-orphans"];
+
+fn nix_run_app(app: &str, project: &str, args: &[&str]) -> std::io::Result<std::process::Child> {
+    Command::new("nix")
+        .args(["run", &format!(".#{}", app)])
+        .args(if args.is_empty() { &[][..] } else { &["--"][..] })
+        .args(args)
+        .env(COMPOSE_PROJECT_ENV, project)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
+        .spawn()
+}
+
+fn nix_run_up(stack: &str, project: &str) -> anyhow::Result<()> {
+    let status = nix_run_app(&format!("{}-up", stack), project, &[])
+        .and_then(|mut c| c.wait())
         .map_err(|e| anyhow::anyhow!("spawn nix run .#{}-up: {}", stack, e))?;
     if status.success() {
         Ok(())
@@ -243,120 +264,113 @@ fn nix_run_down(stack: &str) {
 // ----- StackGuard: 60s teardown budget, fallback to `compose down -v` (audit 6b) -----
 
 struct StackGuard {
-    name: String,
-    compose_file: PathBuf,
-    project: String,
-    /// Read at construction so Drop is independent of env mutation later.
-    keep: bool,
+    registration: Option<Registration>,
 }
 
 impl StackGuard {
-    fn new(name: &str, compose_file: PathBuf, project: String, keep: bool) -> Self {
+    /// Arm before `up`, so a failed or interrupted `up` is also torn down.
+    /// With `keep` set nothing is registered and the project stays.
+    fn arm(name: &str, compose_file: PathBuf, project: String, keep: bool) -> Self {
+        if keep {
+            eprintln!(
+                "[e2e:{}] KEEP=1: the stack stays after the test (docker compose -p {} ps)",
+                name, project
+            );
+            return Self { registration: None };
+        }
+        let name = name.to_string();
+        let label = format!("compose project {}", project);
+        let registration =
+            cleanup::register(label, move || teardown_project(&name, &compose_file, &project));
         Self {
-            name: name.to_string(),
-            compose_file,
-            project,
-            keep,
+            registration: Some(registration),
+        }
+    }
+
+    fn teardown(&mut self) {
+        if let Some(r) = self.registration.take() {
+            r.run();
         }
     }
 }
-
-const DROP_BUDGET: Duration = Duration::from_secs(60);
 
 impl Drop for StackGuard {
     fn drop(&mut self) {
-        if self.keep {
-            eprintln!(
-                "[e2e:{}] KEEP=1 — leaving stack running (docker compose -p {} ps to inspect)",
-                self.name, self.project
-            );
-            return;
-        }
-
-        eprintln!("[e2e:{}] teardown: nix run .#{}-down -- -v (≤60s)", self.name, self.name);
-        let mut child = match Command::new("nix")
-            .args(["run", &format!(".#{}-down", self.name), "--", "-v"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "[e2e:{}] teardown: nix run spawn failed ({}); falling back to docker compose down -v",
-                    self.name, e
-                );
-                self.fallback_compose_down();
-                return;
-            }
-        };
-        match wait_with_budget(&mut child, DROP_BUDGET) {
-            Ok(()) => {
-                eprintln!("[e2e:{}] teardown: nix run completed", self.name);
-            }
-            Err(()) => {
-                eprintln!(
-                    "[e2e:{}] teardown: nix run wedged past 60s; killing and falling back",
-                    self.name
-                );
-                let _ = child.kill();
-                let _ = child.wait();
-                self.fallback_compose_down();
-            }
-        }
+        self.teardown();
     }
 }
 
-impl StackGuard {
-    fn fallback_compose_down(&self) {
-        eprintln!(
-            "[e2e:{}] teardown: docker compose -f {} -p {} down -v (≤60s)",
-            self.name,
-            self.compose_file.display(),
-            self.project
-        );
-        let mut child = match Command::new("docker")
-            .args(["compose", "-f"])
-            .arg(&self.compose_file)
-            .args(["-p", &self.project, "down", "-v"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "[e2e:{}] teardown: docker compose spawn failed ({}); giving up",
-                    self.name, e
-                );
+/// `nix run .#<name>-down -- -v --remove-orphans` for `project`. It falls
+/// back to `docker compose … down -v --remove-orphans` if nix fails to
+/// spawn, exits non-zero, or passes [`TEARDOWN_BUDGET`].
+fn teardown_project(name: &str, compose_file: &Path, project: &str) {
+    eprintln!(
+        "[e2e:{}] teardown: nix run .#{}-down -- {} (project {})",
+        name,
+        name,
+        FULL_DOWN.join(" "),
+        project
+    );
+    match nix_run_app(&format!("{}-down", name), project, &FULL_DOWN) {
+        Ok(mut child) => match wait_with_budget(&mut child, TEARDOWN_BUDGET) {
+            Ok(()) if child.try_wait().ok().flatten().is_some_and(|s| s.success()) => {
+                eprintln!("[e2e:{}] teardown: nix run completed", name);
                 return;
             }
-        };
-        match wait_with_budget(&mut child, DROP_BUDGET) {
-            Ok(()) => {
-                eprintln!("[e2e:{}] teardown: docker compose down completed", self.name);
-            }
+            Ok(()) => eprintln!("[e2e:{}] teardown: nix run failed; falling back", name),
             Err(()) => {
+                eprintln!(
+                    "[e2e:{}] teardown: nix run passed {:?}; killing it and falling back",
+                    name, TEARDOWN_BUDGET
+                );
                 let _ = child.kill();
                 let _ = child.wait();
-                eprintln!(
-                    "[e2e:{}] WARNING: docker compose down -v wedged past 60s; giving up — \
-                     manual cleanup likely required (`docker ps -a`, `docker volume ls`)",
-                    self.name
-                );
             }
+        },
+        Err(e) => eprintln!("[e2e:{}] teardown: nix run spawn failed ({}); falling back", name, e),
+    }
+    compose_down(name, compose_file, project);
+}
+
+fn compose_down(name: &str, compose_file: &Path, project: &str) {
+    eprintln!(
+        "[e2e:{}] teardown: docker compose -f {} -p {} down {}",
+        name,
+        compose_file.display(),
+        project,
+        FULL_DOWN.join(" ")
+    );
+    let mut child = match Command::new("docker")
+        .args(["compose", "-f"])
+        .arg(compose_file)
+        .args(["-p", project, "down"])
+        .args(FULL_DOWN)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[e2e:{}] teardown: docker compose spawn failed ({}); giving up", name, e);
+            return;
         }
+    };
+    if wait_with_budget(&mut child, TEARDOWN_BUDGET).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        eprintln!(
+            "[e2e:{}] teardown: docker compose down passed {:?}; the leak check reports what is left",
+            name, TEARDOWN_BUDGET
+        );
     }
 }
 
 // ----- Public entry: run_one -----
 
-/// Drive one canonical stack: skip-gate → filter-gate → serialise → resolve
-/// → pre-clean → up → arm guard → probe → drop guard (teardown).
+/// Drive one canonical stack: skip gate, filter gate, locks, resolve, port
+/// preflight, pre-clean, arm guard, up, probes, teardown, leak check.
 pub fn run_one(name: &str) {
-    // 1. Skip / strict gate.
     if let Some(reason) = skip_reason() {
         if env_strict() {
             panic!("[e2e:{}] STRICT: {}", name, reason);
@@ -366,25 +380,33 @@ pub fn run_one(name: &str) {
         }
     }
 
-    // 2. Filter gate. `selected()` is generic over the canonical-set
-    //    predicate; the docker harness passes its own `is_canonical`.
+    // `selected()` is generic over the canonical-set predicate; the docker
+    // harness passes its own `is_canonical`.
     if !selected(name, stacks::is_canonical) {
         eprintln!("[e2e:{}] SKIP: not selected by FIRESTREAM_E2E_STACKS", name);
         return;
     }
 
-    // 3. Serialise the entire lifecycle.
+    // NOTE: the in-process lock comes first. HostLock is re-entrant inside
+    // one process, so it alone would not serialise this binary's tests.
     let _serialize = e2e_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _host = HostLock::acquire().unwrap_or_else(|e| panic!("[e2e:{}] host lock: {:?}", name, e));
+    if let Err(e) = cleanup::install_signal_handler() {
+        panic!("[e2e:{}] {:?}", name, e);
+    }
 
-    // 4. Discover ports/projectName/buildList from Nix (no YAML parsing).
     eprintln!("[e2e:{}] resolving via `nix eval --json` …", name);
     let info = match resolve_stack(name) {
         Ok(i) => i,
         Err(e) => panic!("[e2e:{}] resolve_stack failed: {:?}", name, e),
     };
+    let run = RunId::current();
+    let project = run.resource_name(name);
     eprintln!(
-        "[e2e:{}] resolved project={} compose={} host_ports={:?} health_host_port={:?} build_list={:?}",
+        "[e2e:{}] run={} project={} (dev project {}) compose={} host_ports={:?} health_host_port={:?} build_list={:?}",
         name,
+        run,
+        project,
         info.project,
         info.compose_file.display(),
         info.host_ports,
@@ -395,22 +417,21 @@ pub fn run_one(name: &str) {
     // 4b. Optional prebuild (opt-in only; default off — see plan).
     prebuild_once_if_enabled(name, &info.build_list);
 
-    // 5. Idempotent pre-clean.
-    eprintln!("[e2e:{}] pre-clean: nix run .#{}-down", name, name);
-    nix_run_down(name);
+    eprintln!("[e2e:{}] pre-clean: docker compose -p {} down {}", name, project, FULL_DOWN.join(" "));
+    compose_down(name, &info.compose_file, project);
 
-    // 6. Up + arm teardown.
-    eprintln!("[e2e:{}] starting: nix run .#{}-up", name, name);
-    if let Err(e) = nix_run_up(name) {
+    let mut guard = StackGuard::arm(name, info.compose_file.clone(), project.to_string(), keep);
+    eprintln!("[e2e:{}] starting: nix run .#{}-up (project {})", name, name, project);
+    if let Err(e) = nix_run_up(name, project) {
+        probes::dump_diagnostics(&info.compose_file, project);
         panic!("[e2e:{}] nix run .#{}-up failed: {:?}", name, name, e);
     }
-    let _guard = StackGuard::new(name, info.compose_file.clone(), info.project.clone(), env_keep());
 
-    // 7. Probe loop — all probes are sync; no tokio runtime created (audit 6).
+    // All probes are sync; no tokio runtime is created.
     let deadline = Instant::now() + Duration::from_secs(env_timeout_secs());
     let ctx = ProbeCtx {
         compose_file: info.compose_file.clone(),
-        project: info.project.clone(),
+        project: project.to_string(),
         host_ports: info.host_ports.clone(),
         health_host_port: info.health_host_port,
         deadline,
@@ -428,11 +449,10 @@ pub fn run_one(name: &str) {
         if let Err(e) = retry_until_sync(&deadline, || probe.run(&ctx)) {
             let failed = probe.name().to_string();
             probes::dump_diagnostics(&ctx.compose_file, &ctx.project);
-            // StackGuard's Drop will run when this stack frame unwinds via panic.
             panic!("[e2e:{}] probe '{}' failed: {:?}", name, failed, e);
         }
     }
 
     eprintln!("[e2e:{}] all probes passed", name);
-    // _guard drops here, running teardown unless KEEP=1.
+    guard.teardown();
 }

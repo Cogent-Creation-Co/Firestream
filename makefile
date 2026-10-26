@@ -1207,14 +1207,52 @@ ci-e2e-dry-run:
 #   FIRESTREAM_E2E_TIMEOUT_SECS=300    Per-stack readiness timeout (not build)
 #   FIRESTREAM_E2E_PREBUILD=1          Pre-warm images outside the lock
 #   FIRESTREAM_E2E_HTTP=0              Skip HTTP probes (TCP/protocol still run)
+#
+# Every test-e2e* and test-e2e-k8s* target runs `e2e-presweep` first: a full
+# sweep of harness-owned leftovers, so each run starts from a clean host.
 # ==============================================================================
 
+# `firestream-e2e-sweep` removes only harness-owned objects (k3d clusters and
+# `k3d-firestream-e2e-*` docker objects, `firestream-e2e-*` compose projects,
+# their kubeconfig files and contexts). Dev stacks (`firestream-<stack>`) are
+# never matched. It waits for the host-wide e2e lock, so it never races a run.
+#
+#   make e2e-sweep                 remove every harness leftover on this host
+#   make e2e-sweep RUN=<id>        only the objects of run <id>
+#   make e2e-sweep DRY_RUN=1       list what would be removed; remove nothing
+#
+# NOTE: the sweep needs k3d to delete a cluster cleanly, and k3d is on PATH
+# only inside the devshell or the CI builder image. Elsewhere the recipe
+# enters `nix develop` itself rather than degrade to a docker-only sweep.
+E2E_DEVSHELL := $(if $(or $(IN_NIX_SHELL),$(shell command -v k3d 2>/dev/null)),,nix develop --command)
+E2E_SWEEP := $(E2E_DEVSHELL) cargo run -q -p firestream-e2e-core --bin firestream-e2e-sweep --
+
+.PHONY: e2e-sweep e2e-presweep
+e2e-sweep:
+	$(E2E_SWEEP)$(if $(DRY_RUN), --dry-run,)$(if $(RUN), --run $(RUN),)
+
+# WARNING: do not pass RUN or DRY_RUN through here. A scoped or dry pre-test
+# sweep leaves old leftovers in place. They keep their host ports, and the new
+# run then fails its port preflight or its cluster create.
+e2e-presweep:
+	$(E2E_SWEEP)
+
+# The cleanup proofs, each its own test binary so no stack target runs them:
+#   leak_detection      planted run-labelled objects fail the leak check
+#   e2e_k8s_interrupt   SIGTERM during `k3d cluster create` leaves nothing
+#   e2e_interrupt       SIGTERM during `nix run .#redis-up` leaves nothing
+.PHONY: test-e2e-cleanup
+test-e2e-cleanup: e2e-presweep
+	cargo test -p firestream-e2e-core --test leak_detection -- --ignored --nocapture
+	cargo test -p firestream-e2e-k8s --test e2e_k8s_interrupt -- --ignored --test-threads=1 --nocapture
+	cargo test -p firestream --test e2e_interrupt -- --ignored --test-threads=1 --nocapture
+
 .PHONY: test-e2e
-test-e2e:
+test-e2e: e2e-presweep
 	cargo test -p firestream --test e2e -- --ignored --test-threads=1 --nocapture
 
 .PHONY: test-e2e-%
-test-e2e-%:
+test-e2e-%: e2e-presweep
 	FIRESTREAM_E2E_STACKS=$* cargo test -p firestream --test e2e -- --ignored --test-threads=1 --nocapture
 
 # ==============================================================================
@@ -1239,11 +1277,11 @@ test-e2e-%:
 # ==============================================================================
 
 .PHONY: test-e2e-k8s
-test-e2e-k8s:
+test-e2e-k8s: e2e-presweep
 	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture
 
 .PHONY: test-e2e-k8s-%
-test-e2e-k8s-%:
+test-e2e-k8s-%: e2e-presweep
 	FIRESTREAM_E2E_K8S_STACKS=$* \
 	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture
 
@@ -1253,7 +1291,7 @@ test-e2e-k8s-%:
 # filter token; deploys seaweedfs first (its post-install hook creates the
 # `firestream` bucket), then postgresql with backup.enabled=true.
 .PHONY: test-e2e-k8s-pg-backup
-test-e2e-k8s-pg-backup:
+test-e2e-k8s-pg-backup: e2e-presweep
 	FIRESTREAM_E2E_K8S_STACKS=pg-backup \
 	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture e2e_k8s_pg_backup
 
@@ -1262,7 +1300,7 @@ test-e2e-k8s-pg-backup:
 # then odoo with backup.enabled=true. The restore scales the Odoo Deployment
 # to zero and back, so this also covers the quiesce path of the CLI.
 .PHONY: test-e2e-k8s-odoo-backup
-test-e2e-k8s-odoo-backup:
+test-e2e-k8s-odoo-backup: e2e-presweep
 	FIRESTREAM_E2E_K8S_STACKS=odoo-backup \
 	cargo test -p firestream-e2e-k8s --test e2e_k8s -- --ignored --test-threads=1 --nocapture e2e_k8s_odoo_backup
 

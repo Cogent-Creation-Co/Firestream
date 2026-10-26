@@ -48,6 +48,11 @@ use crate::harness::{ReleaseGuard, harness_lock, resolve_charts_dir, should_skip
 /// Filter token for `FIRESTREAM_E2E_K8S_STACKS`. A composite scenario
 /// (seaweedfs + odoo), so it gets its own gate key.
 const FILTER: &str = "odoo-backup";
+/// Target of the cluster name `firestream-e2e-<target>-<id>`.
+///
+/// WARNING: k3d rejects a cluster name longer than 32 characters, so the
+/// target can have at most 10. `odoo-backup` has 11.
+const CLUSTER_TARGET: &str = "odoo-bkp";
 const CHART_S3: &str = "seaweedfs";
 const CHART_ODOO: &str = "odoo";
 
@@ -78,9 +83,17 @@ pub fn run_odoo_backup_roundtrip() {
         return;
     }
 
+    firestream_e2e_core::cleanup::install_signal_handler()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] install signal handler: {:#}", FILTER, e));
     let _guard = harness_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _host_lock = firestream_e2e_core::lock::HostLock::acquire()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] acquire host e2e lock: {:#}", FILTER, e));
 
-    let handle = match cluster::create_cluster(FILTER) {
+    // The rest of the pipeline lives in its own block so the cluster/release
+    // guards drop (and tear everything down) BEFORE the leak check below runs.
+    {
+
+    let handle = match cluster::create_cluster(CLUSTER_TARGET) {
         Ok(h) => h,
         Err(e) => panic!("[e2e-k8s:{}] cluster create failed: {:#}", FILTER, e),
     };
@@ -216,6 +229,9 @@ pub fn run_odoo_backup_roundtrip() {
     assert!(file.contains(SENTINEL), "[e2e-k8s:{}] filestore file content wrong: {:?}", FILTER, file);
 
     eprintln!("[e2e-k8s:{}] round-trip OK: seed -> backup -> delete -> restore -> assert", FILTER);
+    }
+
+    crate::harness::check_for_leaks(CLUSTER_TARGET);
 }
 
 fn wait_and_probe(handle: &cluster::ClusterHandle, rel: &DeployedRelease, chart: &str) {
@@ -265,9 +281,16 @@ fn resolve_pod(kubeconfig: &Path, selector: &str, namespace: &str) -> Result<Str
 }
 
 /// Run a bash snippet inside the odoo pod with the image's helper library
-/// sourced, so `odoo_pg` and the `ODOO_*` connection env are available.
+/// sourced and the image env loaded, so `odoo_pg`, the `ODOO_*` connection
+/// env and `ODOO_DATA_DIR` are available.
 fn odoo_bash(exec: &KubectlExec, pod: &str, script: &str) -> Result<String> {
-    let full = format!("source /opt/firestream/scripts/libhelpersodoo.sh && {}", script);
+    // NOTE: `ODOO_DATA_DIR` is an image env default, not pod env. Without the
+    // load, `kubectl exec` sees it empty and the sentinel lands outside the
+    // filestore volume.
+    let full = format!(
+        "source /opt/firestream/scripts/libhelpersodoo.sh && odoo_load_image_env && {}",
+        script
+    );
     let out = exec
         .exec(pod, &["bash", "-c", &full])
         .context("kubectl exec bash")?;

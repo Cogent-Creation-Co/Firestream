@@ -416,11 +416,11 @@ firestream helm deploy <chart> --charts-dir /custom/path
 The `firestream-e2e-k8s` crate (`src/lib/rust/firestream-e2e-k8s/`) provides per-chart fresh-cluster k3d e2e tests that drive the same `deploy_chart_lifecycle` path the CLI uses. Sister crate to `firestream-e2e-core` (shared primitives) and the docker `firestream/tests/e2e.rs` harness.
 
 **Run via make**:
-- `make test-e2e-k8s` — full 10-chart sweep, serialized, fresh cluster per chart.
-- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs/nginx). `make test-e2e-k8s-pg-backup` and `make test-e2e-k8s-odoo-backup` are the two multi-chart backup/restore round-trips (seaweedfs + the app). No `cloudflared` arm: the connector reports Ready only once it registers with the Cloudflare edge, so it cannot come up in a hermetic cluster.
+- `make test-e2e-k8s` — full 11-chart sweep, serialized, fresh cluster per chart.
+- `make test-e2e-k8s-<chart>` — single chart (postgresql/redis/kafka/airflow/spark/jupyterhub/superset/odoo/seaweedfs/nginx/supabase). When the bundle has a stack named after the chart (`supabase`), `harness::stack_prerequisites` deploys the stack members before it (SeaweedFS first). `make test-e2e-k8s-pg-backup` and `make test-e2e-k8s-odoo-backup` are the two multi-chart backup/restore round-trips (seaweedfs + the app). No `cloudflared` arm: the connector reports Ready only once it registers with the Cloudflare edge, so it cannot come up in a hermetic cluster.
 
 **Env contract** (defaults in parens):
-- `FIRESTREAM_E2E_K8S_STACKS=all|csv` — subset filter (canonical 10)
+- `FIRESTREAM_E2E_K8S_STACKS=all|csv` — subset filter (canonical 11)
 - `FIRESTREAM_E2E_K8S_KEEP=1` — skip teardown (unset)
 - `FIRESTREAM_E2E_K8S_STRICT=1` — skip-gate → hard fail (unset)
 - `FIRESTREAM_E2E_K8S_TIMEOUT_SECS` — per-chart deadline (600)
@@ -430,21 +430,48 @@ The `firestream-e2e-k8s` crate (`src/lib/rust/firestream-e2e-k8s/`) provides per
 
 **Out of scope**: `firestream-healthd` is embedded in container images but not exposed in chart templates (no `9180` port in airflow chart Service). The k8s harness relies on native chart readiness probes + per-protocol probes (postgres `pg_isready`, redis `redis-cli ping`, etc.); wiring healthd into chart Services is a separate RFC. Not in `.github/workflows/build.yaml` — see "E2E as advisory pipeline phases" below for how it *is* reachable from the pipeline.
 
+### E2E setup, teardown and leak check (both harnesses)
+
+Each e2e run starts on a clean host and leaves a clean host. The shared code is in `firestream-e2e-core` (`run_id`, `lock`, `cleanup`, `sweep`, `leak`, `interrupt`).
+
+- **Pre-sweep.** Every `test-e2e*` and `test-e2e-k8s*` make target runs `e2e-presweep` first. It is a full `firestream-e2e-sweep`. The CI e2e links call these targets, so each link also sweeps first.
+- **Host lock.** Each test and each sweep holds an exclusive `flock` on `${XDG_RUNTIME_DIR:-/tmp}/firestream-e2e.lock`. Runs from two shells or two engineers serialize.
+- **Run names.** Each test process has one run id. Each object is named `firestream-e2e-<target>-<id>`: the compose project, the k3d cluster, and the `k3d-<cluster>*` docker objects. Set `FIRESTREAM_E2E_RUN_ID` to select the id. k3d allows 32 characters in a cluster name, so a k3d target has at most 10 (`odoo-backup` uses the cluster target `odoo-bkp`). Dev stacks (`firestream-<stack>`) never match. The compose harness fails at once when a container or a process holds one of its host ports. The message names the holder. There is no grace period, because all registry ports are below the Linux ephemeral range.
+- **Kubeconfig.** The k3d harness creates clusters with `--kubeconfig-update-default=false --kubeconfig-switch-context=false`. It writes `$TMPDIR/firestream-e2e-<target>-<id>.kubeconfig`. `~/.kube/config` and `$KUBECONFIG` do not change.
+- **Teardown.** The guard is armed before the create call, so a partial create is also removed. Compose uses `down -v --remove-orphans`. k3d removes the registry, the cluster, the network, the `-images` volume, the kubeconfig file and the context, in that sequence.
+- **Signals.** On SIGINT, SIGTERM or SIGHUP, the handler stops the subprocesses of the process (SIGTERM, then SIGKILL after 10 s), runs every registered teardown, and exits `128 + signo`. It does not stop the subprocesses when a teardown is already in progress. A guard thread that reaches `Registration::run` or its drop during the drain parks, so the test code cannot exit first.
+- **Leak check.** After the teardown, the test lists every object of its run. A remaining object fails the test (exit 2 in the advisory CI phases). The failure text gives `make e2e-sweep RUN=<id>`.
+- **KEEP=1.** `FIRESTREAM_E2E_KEEP=1` (or `FIRESTREAM_E2E_K8S_KEEP=1`) skips the teardown and the leak check. The test prints `make e2e-sweep RUN=<id>`. The next pre-sweep also removes the objects.
+
+```bash
+make e2e-sweep               # remove every harness object on this host
+make e2e-sweep RUN=<id>      # only the objects of one run
+make e2e-sweep DRY_RUN=1     # list; remove nothing
+make test-e2e-cleanup        # the cleanup proofs (below)
+```
+
+`make e2e-sweep` enters `nix develop` when `k3d` is not on PATH and `IN_NIX_SHELL` is unset. Without k3d, the sweeper can remove the k3d objects only with docker.
+
+`make test-e2e-cleanup` runs three `#[ignore]` test binaries. No stack target runs them:
+- `firestream-e2e-core/tests/leak_detection.rs`: a planted network and volume with the run's names fail the leak check until a sweep removes them.
+- `firestream-e2e-k8s/tests/e2e_k8s_interrupt.rs`: SIGTERM during `k3d cluster create`. The child must exit 143, and no object of the run may remain at exit or 30 s later.
+- `firestream/tests/e2e_interrupt.rs`: the same during `nix run .#redis-up`.
+
 ### E2E as advisory pipeline phases (`--mode e2e`)
 
 Both harnesses above (the k8s one, and the docker one at `src/lib/rust/firestream/tests/e2e.rs` driven by `make test-e2e` / `make test-e2e-<stack>`) are ALSO declared as CI-profile phases. This is **purely additive**: every `make test-e2e*` target and every `FIRESTREAM_E2E*` env var keeps working byte-identically, and is still the right tool for incident reproduction.
 
 ```bash
 make ci-e2e-dry-run     # print the chain; executes nothing
-make ci-e2e             # run it — HOURS, 11 k3d clusters, 8 compose stacks
+make ci-e2e             # run it — HOURS, 13 k3d clusters, 9 compose stacks
 FIRESTREAM_E2E_STRICT=1 FIRESTREAM_E2E_K8S_STRICT=1 make ci-e2e   # unattended
 ```
 
-**Shape.** `bin/nix/firestream/ci/profile.nix` declares 20 phases — `e2e-docker-<stack>` ×8 then `e2e-k8s-<chart>` ×12 (the canonical 10 plus `pg-backup` and `odoo-backup`) — each **advisory**, each holding exactly **one** shell task that shells out to the corresponding makefile target. No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
+**Shape.** `bin/nix/firestream/ci/profile.nix` declares 23 phases — `repro-supabase-fods`, then `e2e-docker-<stack>` ×9, then `e2e-k8s-<chart>` ×13 (the canonical 11 plus `pg-backup` and `odoo-backup`) — each **advisory**, each holding exactly **one** shell task. The e2e links shell out to the corresponding makefile target. `repro-supabase-fods` runs `bin/nix/firestream/supabase/rebuild-fods.py`, which `nix build --rebuild`s every fixed-output derivation of the ten Supabase images that cache.nixos.org does not serve (see `docs/supabase-maintainer.md`). No Rust changed; this is entirely the `shellTasks` seam Phase 6 added.
 
 **Why chained phases and not parallel tasks in one phase.** `firestream_ci::pipeline::Pipeline::run` fans a phase's tasks out with `join_all` and **no concurrency cap**. Both harnesses hold a process-wide mutex (`harness_lock()` / `e2e_lock()`) precisely because they create real k3d clusters and bind host ports; k3d name/port collisions are already engineered away (random cluster suffix, `127.0.0.1` API bind, `pick_ephemeral_port()`), so N concurrent runs would not *collide* — they would just be N k3s servers plus N full data stacks on one machine. So the serialisation is done at profile level: one task per phase, phases chained through `dependsOn`. Phases run strictly one at a time.
 
-**Two `dependsOn` edges per link, and the second is load-bearing.** Each link names its predecessor *and* `verify` directly. Skip is **not transitive** in `Pipeline::run`: a phase is skipped only when one of its **own** `depends_on` is a *required* phase that failed, and a skipped `PhaseOutcome` reports `ok() == true` (an `all()` over zero tasks). With a chain-only wiring, a red `verify` would skip only the head link and then run 17 remaining hours of e2e against a broken tree.
+**Two `dependsOn` edges per link, and the second is load-bearing.** Each link names its predecessor *and* `verify` directly. Skip is **not transitive** in `Pipeline::run`: a phase is skipped only when one of its **own** `depends_on` is a *required* phase that failed, and a skipped `PhaseOutcome` reports `ok() == true` (an `all()` over zero tasks). With a chain-only wiring, a red `verify` would skip only the head link and then run all the remaining hours of e2e against a broken tree.
 
 **Failure semantics.** Advisory ⇒ a red chart yields exit **2** (`PartiallyPassed`), never 1, and does **not** stop the sweep — matching the cargo harness, where each chart is its own `#[test]`. A red `verify` (required) skips the whole chain and exits 1.
 
@@ -518,7 +545,7 @@ design:
 | `1` | `Failed` — a **Required** task failed | **fails the job** |
 | `2` | `PartiallyPassed` — every Required passed, ≥1 **Advisory** failed | `::warning::` + job summary, **does not fail** |
 
-Exit 2 is what lets slow or flaky work (`tidy`, `attest`, and the 20 `e2e-*`
+Exit 2 is what lets slow or flaky work (`tidy`, `attest`, and the 22 `e2e-*`
 phases) live in the pipeline without blocking merges.
 
 **"Continuous but non-blocking" vs. "hosted runners can't do this".** Both are
@@ -541,7 +568,7 @@ failure, so both workflows grep the captured log for
 
 ### Runner configuration
 
-The release-mode `build` phase (11 container images + 10 charts) does **not** fit
+The release-mode `build` phase (21 container images + 11 charts) does **not** fit
 on a GitHub-hosted runner — hours of wall clock, multi-GB outputs, ~14 GB disk
 and 7 GB RAM. Two repository variables control this:
 
