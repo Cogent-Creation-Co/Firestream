@@ -171,11 +171,67 @@
 # Image naming passthrough (parity defaults).
 , imageName ? "firestream-postgresql"
 , imageTag ? version
+
+# options.postgresql.extensions / extraConf / initdbSuperuser, forwarded via
+# extraModuleArgs. The defaults leave the image unchanged.
+, extensions ? null
+, extraConf ? ""
+, initdbSuperuser ? "postgres"
+, readyMarker ? null
 }:
 
 let
-  # Select PostgreSQL version
-  postgresql = pkgs."postgresql_${version}";
+  serverPackage = pkgs."postgresql_${version}";
+
+  postgresql =
+    if extensions == null then serverPackage
+    else serverPackage.withPackages (ps:
+      extensions (ps // firestream.packages.postgresqlExtensionsFor serverPackage));
+
+  extraConfFile = pkgs.writeText "postgresql-firestream.conf" extraConf;
+
+  # WARNING: activateFn interpolates this on one line. A second line for a
+  # new option adds an empty line to the default script, and every stock
+  # postgresql image changes.
+  variantActivation =
+    lib.optionalString (extraConf != "") ''
+    # NOTE: activation runs before first-boot initialization, which starts the
+    # server, so preload libraries and their settings are in place for initdb's
+    # first start as well as for every later boot.
+    ensure_dir_exists "$POSTGRESQL_CONF_DIR/conf.d"
+    cp -f ${extraConfFile} "$POSTGRESQL_CONF_DIR/conf.d/firestream.conf"
+    chmod 0644 "$POSTGRESQL_CONF_DIR/conf.d/firestream.conf"
+    ''
+    + lib.optionalString (initdbSuperuser != "postgres") ''
+    # NOTE: this replaces the helper from scripts/helpers.sh for the rest of
+    # the boot. The helper itself stays unchanged, so images that keep the
+    # default bootstrap user do not change.
+    postgresql_master_init_db() {
+      local initdb_args=()
+      if [[ -n "$POSTGRESQL_INITDB_ARGS" ]]; then
+        read -r -a initdb_args <<< "$POSTGRESQL_INITDB_ARGS"
+      fi
+      if [[ -n "$POSTGRESQL_INITDB_WAL_DIR" ]]; then
+        ensure_dir_exists "$POSTGRESQL_INITDB_WAL_DIR"
+        initdb_args+=("--waldir" "$POSTGRESQL_INITDB_WAL_DIR")
+      fi
+      info "Initializing PostgreSQL database with bootstrap superuser ${initdbSuperuser}..."
+      initdb -E UTF8 -D "$POSTGRESQL_DATA_DIR" -U "${initdbSuperuser}" "''${initdb_args[@]}"
+      echo "CREATE ROLE postgres SUPERUSER LOGIN;" | postgres --single -D "$POSTGRESQL_DATA_DIR" postgres > /dev/null
+    }
+    ''
+    # WARNING: keep the removal. A restarted container keeps its tmp dir, and a
+    # stale marker reports the temporary init server ready.
+    + lib.optionalString (readyMarker != null) ''
+    rm -f ${readyMarker}
+    '';
+
+  # NOTE: the marker goes after init, which stops its temporary server, and
+  # before the exec of the long-running server. A marker that init writes
+  # would also mark the temporary server ready during its shutdown.
+  markServing = lib.optionalString (readyMarker != null) ''
+
+    touch ${readyMarker}'';
 
   # Read external script files
   validateScript = builtins.readFile ./scripts/validate.sh;
@@ -678,7 +734,7 @@ in firestream.mkContainerModule {
 
     # Load secrets from _FILE variables
     ${secretsScript}
-
+    ${variantActivation}
     info "PostgreSQL configuration activated"
   '';
 
@@ -695,7 +751,7 @@ in firestream.mkContainerModule {
     # Enable NSS wrapper
     postgresql_enable_nss_wrapper
 
-    info "Starting PostgreSQL..."
+    info "Starting PostgreSQL..."${markServing}
     exec postgres \
       -D "$POSTGRESQL_DATA_DIR" \
       --config-file="$POSTGRESQL_CONF_FILE" \

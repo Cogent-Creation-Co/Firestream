@@ -71,6 +71,16 @@
         ./nix/flake-modules/containers/superset.nix
         ./nix/flake-modules/containers/odoo.nix
         ./nix/flake-modules/containers/postgresql.nix
+        ./nix/flake-modules/containers/supabase-postgres.nix
+        ./nix/flake-modules/containers/supabase-postgrest.nix
+        ./nix/flake-modules/containers/supabase-imgproxy.nix
+        ./nix/flake-modules/containers/supabase-auth.nix
+        ./nix/flake-modules/containers/supabase-envoy.nix
+        ./nix/flake-modules/containers/supabase-realtime.nix
+        ./nix/flake-modules/containers/supabase-supavisor.nix
+        ./nix/flake-modules/containers/supabase-postgres-meta.nix
+        ./nix/flake-modules/containers/supabase-storage.nix
+        ./nix/flake-modules/containers/supabase-studio.nix
         ./nix/flake-modules/containers/redis.nix
         ./nix/flake-modules/containers/kafka.nix
         ./nix/flake-modules/containers/spark.nix

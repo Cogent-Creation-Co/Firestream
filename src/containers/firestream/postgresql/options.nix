@@ -13,10 +13,74 @@
 # individually). A single mkDefault around the whole attrset would be replaced
 # wholesale when a consumer overrides one key, silently dropping siblings.
 
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
+let
+  # NOTE: healthd starts before the entrypoint exports the env defaults, so
+  # the fallback must equal the POSTGRESQL_TMP_DIR default. The tmp dir is
+  # not on the data volume, and it is writable wherever the socket is.
+  readyMarker = ''"''${POSTGRESQL_TMP_DIR:-/opt/firestream/postgresql/tmp}/.firestream-serving"'';
+in
 {
+  options.postgresql.extensions = lib.mkOption {
+    type = lib.types.nullOr (lib.types.functionTo (lib.types.listOf lib.types.package));
+    default = null;
+    description = ''
+      Extensions to build into the server, as a function of the extension set
+      (`ps: [ ps.pgvector ps.supabase_vault ]`). The set is nixpkgs'
+      `postgresql.pkgs` plus the Firestream-built extensions
+      (`firestream.packages.postgresqlExtensionsFor`). null (default) => the
+      plain server with no extensions; the stock image is unchanged.
+    '';
+  };
+
+  options.postgresql.extraConf = lib.mkOption {
+    type = lib.types.lines;
+    default = "";
+    description = ''
+      postgresql.conf lines written to `$POSTGRESQL_CONF_DIR/conf.d/firestream.conf`
+      on every boot, before first-boot initialization starts the server. Settings
+      that the image's own env-driven properties also write (for example
+      `shared_preload_libraries`, `wal_level`) belong in the env, because
+      postgresql.conf sets them after the conf.d include. Empty (default) => no
+      file; the stock image is unchanged.
+    '';
+  };
+
+  options.postgresql.initdbSuperuser = lib.mkOption {
+    type = lib.types.str;
+    default = "postgres";
+    description = ''
+      The bootstrap superuser that initdb creates. Postgres refuses to drop
+      SUPERUSER from this role, so a stack that later demotes `postgres` (the
+      Supabase migrations do) needs another bootstrap role. Any value other than
+      "postgres" also creates a `postgres` superuser right after initdb, because
+      the image's init steps connect as `postgres`. "postgres" (default) => the
+      stock image is unchanged.
+    '';
+  };
+
+  options.postgresql.readyAfterInit = lib.mkOption {
+    type = lib.types.bool;
+    default = false;
+    description = ''
+      Report ready only once the long-running server runs. First-boot
+      initialization serves its init scripts from a temporary server on the
+      same address and port, and a plain `pg_isready` accepts it, so a
+      dependent can start before the init scripts end. true => every boot
+      removes a marker, the entrypoint writes it just before it starts the
+      long-running server, and the readiness command requires it. false
+      (default) => the stock image is unchanged.
+    '';
+  };
+
   config.postgresql = {
+    # extraModuleArgs seam (eval-container.nix splices this into moduleArgs).
+    extraModuleArgs = {
+      inherit (config.postgresql) extensions extraConf initdbSuperuser;
+      readyMarker = if config.postgresql.readyAfterInit then readyMarker else null;
+    };
+
     # Paths configuration (Bitnami compatibility)
     # Per-key mkDefault so individual paths can be overridden independently.
     paths = {
@@ -151,12 +215,6 @@
 
     exposedPorts = lib.mkDefault [ 5432 ];
 
-    # Distinct host-port offset (spacing 2000) so all 8 canonical apps can run
-    # simultaneously on docker without colliding. postgresql=22000.
-    #   postgresql 5432 -> host 27432
-    #   healthd    9180 -> host 31180
-    compose.hostPortOffset = lib.mkDefault 22000;
-
     # Phase 3 pilot / Phase 4 generalisation: enable the in-image
     # firestream-healthd service for postgresql. The entrypoint wrapper
     # (base.nix) launches healthd in the background; /readyz invokes
@@ -180,7 +238,8 @@
       # a deterministic, cross-deployment probe (matches the Bitnami
       # chart's own readinessProbe pattern: `pg_isready -h 127.0.0.1 -p 5432`).
       readinessCmd = lib.mkDefault
-        ''pg_isready -U "''${POSTGRESQL_USERNAME:-postgres}" -d "''${POSTGRESQL_DATABASE:-postgres}" -h 127.0.0.1 -p "''${POSTGRESQL_PORT_NUMBER:-5432}"'';
+        (lib.optionalString config.postgresql.readyAfterInit "test -e ${readyMarker} && " +
+        ''pg_isready -U "''${POSTGRESQL_USERNAME:-postgres}" -d "''${POSTGRESQL_DATABASE:-postgres}" -h 127.0.0.1 -p "''${POSTGRESQL_PORT_NUMBER:-5432}"'');
     };
   };
 }
