@@ -24,14 +24,37 @@
 //! - [`exec`] — the transport-agnostic `Exec` trait. One impl per backend
 //!   (`DockerComposeExec` lives in the docker harness; `KubectlExec` lives
 //!   in [`k8s::exec`]).
+//! - [`run_id`] — one run id per process and the
+//!   `firestream-e2e-<target>-<id>` resource names built from it.
+//! - [`lock`] — the host-wide `flock` that every harness test and every
+//!   sweep holds.
+//! - [`cleanup`] — process-wide teardown registry, drained on
+//!   SIGINT/SIGTERM/SIGHUP.
+//! - [`runner`] — the `CommandRunner` seam for docker/k3d/kubectl calls.
+//! - [`sweep`] — find and remove harness-owned leftovers (library side of
+//!   the `firestream-e2e-sweep` binary).
+//! - [`leak`] — post-teardown leak check for one run.
+//! - [`interrupt`] — SIGTERM a child harness run during setup and prove
+//!   that it leaves nothing.
 //! - [`k8s`] — k3d cluster lifecycle, `kubectl`-driven probe matrix,
 //!   port-forward and readiness helpers. Relocated here from
 //!   `firestream-e2e-k8s` so the main `firestream` CLI can reuse it
 //!   without forming a dependency cycle.
 
+pub mod cleanup;
 pub mod env;
 pub mod exec;
 pub mod guard;
+pub mod interrupt;
 pub mod k8s;
+pub mod leak;
+pub mod lock;
 pub mod probe;
 pub mod retry;
+pub mod run_id;
+pub mod runner;
+pub mod supabase;
+pub mod sweep;
+
+#[cfg(test)]
+mod test_child;

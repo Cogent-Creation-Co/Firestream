@@ -138,3 +138,10 @@ stack_test_k8s!(e2e_k8s_seaweedfs, "seaweedfs");
 // Ready only once it has registered with the Cloudflare edge, so it cannot come
 // up in a hermetic cluster at all.
 stack_test_k8s!(e2e_k8s_nginx, "nginx");
+
+// ---- Supabase (non-Bitnami chart, two releases) ----
+// The bundle's `supabase` stack is [ seaweedfs supabase ], so the harness
+// deploys SeaweedFS first (see `harness::stack_prerequisites`). The probe chain
+// (firestream_e2e_core::supabase) drives Auth, PostgREST, Storage, Realtime,
+// Supavisor and Studio through the Envoy gateway.
+stack_test_k8s!(e2e_k8s_supabase, "supabase");

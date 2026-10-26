@@ -8,7 +8,7 @@
 /// Canonical stacks driven by `make test-e2e`. Order matches the macro
 /// invocations in `tests/e2e.rs`. Typed as a sized array (rather than `&[&str]`)
 /// so rust-analyzer doesn't false-positive on the const-context slice coercion.
-pub const CANONICAL: [&str; 8] = [
+pub const CANONICAL: [&str; 9] = [
     "airflow",
     "postgresql",
     "redis",
@@ -17,6 +17,7 @@ pub const CANONICAL: [&str; 8] = [
     "jupyterhub",
     "superset",
     "odoo",
+    "supabase",
 ];
 
 /// True iff `name` is a recognised canonical stack.

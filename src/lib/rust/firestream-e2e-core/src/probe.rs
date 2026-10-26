@@ -36,6 +36,15 @@ pub trait Probe {
     fn run(&self) -> Result<()>;
 }
 
+impl<P: Probe + ?Sized> Probe for Box<P> {
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+    fn run(&self) -> Result<()> {
+        (**self).run()
+    }
+}
+
 // ---------- TCP ----------
 
 /// Synchronous TCP "connect succeeds" probe. Tries every resolved address for

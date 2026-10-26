@@ -9,9 +9,9 @@
 #
 # Everything below is enumerated from the flake, not invented:
 #
-#   verify  -> the 13 granular checks in nix/flake-modules/checks.nix
-#   build   -> the 11 container images in nix/flake-modules/containers/*
-#              + the 10 chart bundles in nix/flake-modules/charts/*
+#   verify  -> every flake check except `excludedChecks` (see verifyChecks)
+#   build   -> the 21 container images in nix/flake-modules/containers/*
+#              + the 11 chart bundles in nix/flake-modules/charts/*
 #   attest  -> packages.manifest (the fleet SBOM, nix/flake-modules/aggregate.nix:38)
 #
 # NOTE ON `{system}`: every attribute below is a template. This module is
@@ -147,8 +147,8 @@ let
   # --mode e2e` (`make ci-e2e`). See the long-form note in CLAUDE.md.
 
   # Canonical docker stacks, from `src/lib/rust/firestream/tests/e2e/stacks.rs`
-  # (`CANONICAL`, 8 entries). Reordered cheapest-first so a chain that is going
-  # to fail tends to fail early.
+  # (`CANONICAL`, 9 entries). Reordered cheapest-first so a chain that is going
+  # to fail tends to fail early; supabase (eleven images with SeaweedFS) is the most expensive.
   e2eDockerStacks = [
     "postgresql"
     "redis"
@@ -158,10 +158,12 @@ let
     "jupyterhub"
     "superset"
     "odoo"
+    "supabase"
   ];
 
   # Canonical k8s charts, from `firestreamStacks.dev` / the charts documented in
-  # CLAUDE.md, plus `pg-backup` and `odoo-backup` — the multi-chart
+  # CLAUDE.md, plus `supabase` (deployed with its own `firestreamStacks.supabase`
+  # SeaweedFS), plus `pg-backup` and `odoo-backup` — the multi-chart
   # backup/restore round-trips, each with its own explicit makefile target
   # (`test-e2e-k8s-pg-backup` wins over the `test-e2e-k8s-%` pattern rule)
   # and therefore its own phase.
@@ -184,17 +186,35 @@ let
     "superset"
     "odoo"
     "nginx"
+    "supabase"
     "pg-backup"
     "odoo-backup"
   ];
 
-  # One link of the chain: `{ name; target; }`. `target` is a makefile target
-  # that ALREADY exists and whose env contract is documented in the makefile —
-  # nothing here re-implements a harness, and `make test-e2e-k8s-redis` keeps
-  # working byte-identically for incident reproduction.
+  # The Supabase images whose remaining fixed-output derivations the
+  # reproducibility link fetches again.
+  supabaseImages = builtins.filter (lib.hasPrefix "supabase-") containerPackages;
+
+  # NOTE: the reproducibility link heads the chain, so pin drift fails within
+  # the first hour of a sweep and not after the docker and k3d runs. It is a
+  # shell task and not `attrs`, because `nix build --rebuild` of each FOD is
+  # not a flake attribute, and listing the FODs in Nix would need the
+  # closure of each image at evaluation time.
+  reproLink = {
+    name = "repro-supabase-fods";
+    command = [ "bin/nix/firestream/supabase/rebuild-fods.py" ]
+      ++ map (n: ".#${pkgAttr n}") supabaseImages;
+  };
+
+  # One link of the chain: `{ name; command; }`. Each e2e command is a makefile
+  # target that ALREADY exists and whose env contract is documented in the
+  # makefile — nothing here re-implements a harness, and
+  # `make test-e2e-k8s-redis` keeps working byte-identically for incident
+  # reproduction.
   e2eLinks =
-    (map (s: { name = "e2e-docker-${s}"; target = "test-e2e-${s}"; }) e2eDockerStacks)
-    ++ (map (c: { name = "e2e-k8s-${c}"; target = "test-e2e-k8s-${c}"; }) e2eK8sCharts);
+    [ reproLink ]
+    ++ (map (s: { name = "e2e-docker-${s}"; command = [ "make" "test-e2e-${s}" ]; }) e2eDockerStacks)
+    ++ (map (c: { name = "e2e-k8s-${c}"; command = [ "make" "test-e2e-k8s-${c}" ]; }) e2eK8sCharts);
 
   # The phase the head of the chain hangs off. `verify` has no `modes`, so it
   # runs in mode `e2e` too: there is no point burning hours of cluster time on
@@ -229,7 +249,7 @@ let
       # chain a serialisation: adding a second task to any of these phases
       # would put two harness runs on the same machine at the same time.
       shellTasks = [
-        { name = link.name; command = [ "make" link.target ]; }
+        { name = link.name; command = link.command; }
       ];
     };
   };
@@ -262,8 +282,9 @@ in {
     #                                        -> attest (advisory, release only)
     #
     #   mode=e2e only, appended by `e2ePhases` below:
-    #   verify -> e2e-docker-postgresql -> ... -> e2e-k8s-pg-backup
-    #             (18 advisory single-task phases, strictly chained)
+    #   verify -> repro-supabase-fods -> e2e-docker-postgresql -> ...
+    #          -> e2e-k8s-odoo-backup
+    #             (advisory single-task phases, strictly chained)
     phases = e2ePhasesFor // {
       tidy = {
         tier = "advisory";
@@ -304,10 +325,10 @@ in {
           (map pkgAttr containerPackages)
           ++ (map (n: pkgAttr "${n}-chart") chartNames)
           ++ [ (pkgAttr "firestream-charts-bundle") ];
-        # 22 attrs, one common prefix (`packages.{system}`), no advisory
+        # 32 attrs, one common prefix (`packages.{system}`), no advisory
         # exceptions -> one nix-fast-build over the whole set. This is the
         # single largest wall-clock win available: one flake evaluation and
-        # one bounded job queue instead of 22 of each.
+        # one bounded job queue instead of 32 of each.
         aggregate = true;
         # Materialise each built image/chart into <rundir>/artifacts/ with
         # sha256 + size, via the exportTargets rules below.

@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -32,7 +32,8 @@ use crate::probe::{HttpReady, PgIsReady, Probe as CoreProbeTrait, RedisPing};
 
 use super::cluster::ClusterHandle;
 use super::exec::KubectlExec;
-use super::portforward::forward_service;
+use super::portforward::{PortForwardHandle, forward_service};
+use crate::supabase::{self, SupabaseStack};
 
 /// Per-test context handed to every probe. The probe matrix consumes
 /// these fields to construct a `KubectlExec` per-run, look up the right
@@ -561,11 +562,144 @@ fn read_secret_value_b64(
     }
 }
 
+// ---------- Supabase (shared functional probes) ----------
+
+/// `Exec` whose target is a Supabase component (`db`, `studio`, `envoy`). It
+/// resolves the release's pod for that component on every call, so it
+/// follows pod restarts, then runs `kubectl exec` in the main container.
+struct SupabaseComponentExec {
+    kubeconfig: PathBuf,
+    namespace: String,
+    release: String,
+}
+
+impl Exec for SupabaseComponentExec {
+    fn exec(&self, target: &str, args: &[&str]) -> Result<std::process::Output> {
+        let selector = format!(
+            "app.kubernetes.io/instance={},app.kubernetes.io/name=supabase-{}",
+            self.release, target
+        );
+        let out = Command::new("kubectl")
+            .arg("--kubeconfig")
+            .arg(&self.kubeconfig)
+            .args([
+                "get",
+                "pods",
+                "-n",
+                &self.namespace,
+                "-l",
+                &selector,
+                "--field-selector=status.phase=Running",
+                "-o",
+                "jsonpath={.items[0].metadata.name}",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .context("spawn kubectl get pods")?;
+        let pod = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() || pod.is_empty() {
+            bail!("no running pod for selector {} in ns {}", selector, self.namespace);
+        }
+        KubectlExec {
+            namespace: self.namespace.clone(),
+            kubeconfig: self.kubeconfig.clone(),
+        }
+        .exec(&pod, args)
+    }
+}
+
+/// The stack handle and the gateway port-forward it points at, created on
+/// the first probe run so that building the chain needs no cluster.
+#[derive(Default)]
+struct SupabaseSession {
+    state: Mutex<Option<(Arc<SupabaseStack>, Arc<PortForwardHandle>)>>,
+}
+
+impl SupabaseSession {
+    fn stack(&self, ctx: &K8sCtx) -> Result<(Arc<SupabaseStack>, Arc<PortForwardHandle>)> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(s) = state.as_ref() {
+            return Ok(s.clone());
+        }
+        let kubeconfig = &ctx.handle.kubeconfig;
+        let service = |component: &str| {
+            resolve_service_name(
+                kubeconfig,
+                &ctx.namespace,
+                &format!(
+                    "app.kubernetes.io/instance={},app.kubernetes.io/component={}",
+                    ctx.release, component
+                ),
+            )
+        };
+        let gateway = service("envoy")?;
+        let forward = Arc::new(
+            forward_service(&ctx.handle, &ctx.namespace, &gateway, 8000)
+                .with_context(|| format!("port-forward svc/{}:8000", gateway))?,
+        );
+        let stack = Arc::new(SupabaseStack {
+            exec: Arc::new(SupabaseComponentExec {
+                kubeconfig: kubeconfig.clone(),
+                namespace: ctx.namespace.clone(),
+                release: ctx.release.clone(),
+            }),
+            db_target: "db".into(),
+            studio_target: "studio".into(),
+            gateway_target: "envoy".into(),
+            gateway_url: format!("http://127.0.0.1:{}", forward.local_port()),
+            internal_gateway_url: format!("http://{}:8000", gateway),
+            supavisor_host: service("supavisor")?,
+        });
+        *state = Some((stack.clone(), forward.clone()));
+        Ok((stack, forward))
+    }
+
+    /// Drop the session so the next run opens a fresh port-forward.
+    fn reset(&self) {
+        *self.state.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+}
+
+/// One probe of [`supabase::CHAIN`], run through a shared session.
+struct SupabaseProbe {
+    name: &'static str,
+    session: Arc<SupabaseSession>,
+}
+
+impl Probe for SupabaseProbe {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+    fn run(&self, ctx: &K8sCtx) -> Result<()> {
+        let (stack, _forward) = self.session.stack(ctx)?;
+        let probe = supabase::probe(self.name, stack)
+            .ok_or_else(|| anyhow!("unknown supabase probe {}", self.name))?;
+        let result = probe.run();
+        if result.is_err() {
+            self.session.reset();
+        }
+        result
+    }
+}
+
+fn supabase_chain() -> Vec<Box<dyn Probe>> {
+    let session = Arc::new(SupabaseSession::default());
+    supabase::CHAIN
+        .iter()
+        .map(|name| {
+            Box::new(SupabaseProbe {
+                name,
+                session: session.clone(),
+            }) as Box<dyn Probe>
+        })
+        .collect()
+}
+
 // ---------- per-chart matrix ----------
 
 /// Return the readiness probe chain for `chart`.
 ///
-/// All nine canonical Firestream charts are wired here. Each probe
+/// Every canonical Firestream chart is wired here. Most probe
 /// chain is single-element; we could add tcp pre-checks before each
 /// protocol probe but the retry loop in `harness::run_one` already
 /// handles flakiness via wall-clock-bounded retries.
@@ -582,6 +716,7 @@ fn read_secret_value_b64(
 /// | superset    | `…/instance=<rel>,…/component=superset-web`         |   80 | `/health`                  |
 /// | odoo        | `…/instance=<rel>,…/name=odoo`                      |   80 | `/web/health`              |
 /// | seaweedfs   | `…/instance=<rel>,…/component=seaweedfs-all-in-one`  | 8333 | `/`                        |
+/// | supabase    | `…/instance=<rel>,…/component=envoy`                | 8000 | the [`supabase::CHAIN`]    |
 ///
 /// The selectors deliberately use the *instance* label (release name)
 /// rather than the *name* label (chart name) so jupyterhub/superset
@@ -705,6 +840,10 @@ pub fn for_chart(chart: &str, ctx: &K8sCtx) -> Result<Vec<Box<dyn Probe>>> {
             path: "/healthz",
             max_status: 500,
         })]),
+        // NOTE: the Supabase chart needs the SeaweedFS release that the
+        // harness deploys first (firestreamStacks.supabase). The chain drives
+        // every service through the Envoy gateway; see crate::supabase.
+        "supabase" => Ok(supabase_chain()),
         // NOTE: there is deliberately no `cloudflared` arm. The connector's
         // only health signal is /ready, which reports whether it has
         // registered with the CLOUDFLARE EDGE — it cannot go Ready without a
@@ -713,7 +852,7 @@ pub fn for_chart(chart: &str, ctx: &K8sCtx) -> Result<Vec<Box<dyn Probe>>> {
         // list in bin/nix/firestream/ci/profile.nix.
         other => bail!(
             "probe chain for chart `{}` not implemented; known charts: \
-             postgresql, redis, kafka, airflow, spark, jupyterhub, superset, odoo, seaweedfs, nginx",
+             postgresql, redis, kafka, airflow, spark, jupyterhub, superset, odoo, seaweedfs, nginx, supabase",
             other
         ),
     }
@@ -820,6 +959,8 @@ mod tests {
             "superset",
             "odoo",
             "seaweedfs",
+            "nginx",
+            "supabase",
         ] {
             match for_chart(chart, &ctx) {
                 Ok(chain) => {

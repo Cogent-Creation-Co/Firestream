@@ -16,13 +16,15 @@
 // Each test calls into `harness::run_one(stack)` which handles:
 //   1. Skip gate (nix + docker on PATH; docker daemon up)
 //   2. Filter gate (FIRESTREAM_E2E_STACKS CSV)
-//   3. Serialise on a global Mutex (correctness not dependent on -j1)
+//   3. The in-process Mutex, then the host-wide lock and the signal handler
 //   4. Discover ports/projectName/buildList via `nix eval --json`
-//   5. `nix run .#<name>-down` (pre-clean), then `nix run .#<name>-up`
-//   6. Arm a StackGuard for teardown
+//   5. Port preflight: fail if a host port is held (e.g. by a dev stack)
+//   6. Pre-clean, then arm a StackGuard, then `nix run .#<name>-up` with
+//      FIRESTREAM_COMPOSE_PROJECT=firestream-e2e-<name>-<run id>
 //   7. Run per-protocol readiness probes
-//   8. Drop StackGuard → `nix run .#<name>-down` (with a 60s wall-clock
-//      timeout and a `docker compose down -v` fallback).
+//   8. Teardown: `nix run .#<name>-down -- -v --remove-orphans` (bounded by
+//      TEARDOWN_BUDGET, with a `docker compose down` fallback)
+//   9. Leak check: any object of the run that is left fails the test
 //
 // See `tests/e2e/harness.rs` for the precise sequence.
 //
@@ -55,3 +57,4 @@ stack_test!(e2e_spark,      "spark");
 stack_test!(e2e_jupyterhub, "jupyterhub");
 stack_test!(e2e_superset,   "superset");
 stack_test!(e2e_odoo,       "odoo");
+stack_test!(e2e_supabase,   "supabase");

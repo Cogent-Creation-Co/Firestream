@@ -259,18 +259,38 @@ pub(crate) fn resolve_charts_dir(chart: &str) -> std::path::PathBuf {
     }
 }
 
+/// Charts to deploy before `chart`: the members that precede it in a bundle
+/// stack named after the chart (`firestreamStacks.supabase = [ "seaweedfs"
+/// "supabase" ]`). Empty when the bundle has no such stack, which is the
+/// case for every single-chart stack.
+pub(crate) fn stack_prerequisites(charts_dir: &Path, chart: &str) -> Vec<String> {
+    let Ok(charts) = firestream_charts::Charts::open(charts_dir) else {
+        return Vec::new();
+    };
+    charts
+        .index()
+        .stacks
+        .get(chart)
+        .map(|members| members.iter().take_while(|m| m.as_str() != chart).cloned().collect())
+        .unwrap_or_default()
+}
+
 /// Full Phase-3 pipeline. Steps:
 ///
 ///  1. Skip / strict gate.
 ///  2. Filter gate via `FIRESTREAM_E2E_K8S_STACKS`.
-///  3. Take the process-wide mutex (poisoning-tolerant).
+///  3. Take the process-wide mutex (poisoning-tolerant) and the host-wide
+///     e2e lock, and install the signal handler.
 ///  4. Create a per-test k3d cluster. Arm `ClusterGuard`.
-///  5. Resolve the bundle dir; deploy the chart via
-///     `deploy_chart_lifecycle`. Arm `ReleaseGuard`.
+///  5. Resolve the bundle dir; deploy the stack prerequisites (see
+///     [`stack_prerequisites`]) and wait for them, then deploy the chart via
+///     `deploy_chart_lifecycle`. Arm a `ReleaseGuard` for each release.
 ///  6. `kubectl wait --for=condition=Ready` against the release's pods,
 ///     bounded by `FIRESTREAM_E2E_K8S_TIMEOUT_SECS`.
 ///  7. Run the per-chart probe chain in `retry_until_sync` loops against
 ///     the same deadline.
+///  8. Leak check for `chart` under the run id, once the guards from 4-5
+///     have dropped. A leak fails the test.
 ///
 /// Panics on any pipeline failure (matches the docker harness's contract;
 /// `#[test]` consumers expect panic-on-failure semantics from
@@ -297,79 +317,123 @@ pub fn run_one(chart: &str) {
         return;
     }
 
-    // ---- 3. process-wide mutex ----
+    // ---- 3. signal handler, process-wide mutex, host-wide lock ----
+    firestream_e2e_core::cleanup::install_signal_handler()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] install signal handler: {:#}", chart, e));
     let _guard = harness_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _host_lock = firestream_e2e_core::lock::HostLock::acquire()
+        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] acquire host e2e lock: {:#}", chart, e));
 
-    // ---- 4. create cluster + arm guard ----
-    let handle = match cluster::create_cluster(chart) {
-        Ok(h) => h,
-        Err(e) => panic!("[e2e-k8s:{}] cluster create failed: {:#}", chart, e),
-    };
-    eprintln!(
-        "[e2e-k8s:{}] cluster up: name={} kubeconfig={}",
-        chart,
-        handle.name,
-        handle.kubeconfig.display()
-    );
-    let _cluster_guard = cluster::ClusterGuard::arm(handle.clone(), env_keep_k8s());
+    // Steps 4-7 live in their own block so the cluster/release guards drop
+    // (and tear everything down) BEFORE the leak check in step 8 runs.
+    {
+        // ---- 4. create cluster + arm guard ----
+        let handle = match cluster::create_cluster(chart) {
+            Ok(h) => h,
+            Err(e) => panic!("[e2e-k8s:{}] cluster create failed: {:#}", chart, e),
+        };
+        eprintln!(
+            "[e2e-k8s:{}] cluster up: name={} kubeconfig={}",
+            chart,
+            handle.name,
+            handle.kubeconfig.display()
+        );
+        let _cluster_guard = cluster::ClusterGuard::arm(handle.clone(), env_keep_k8s());
 
-    // ---- 5. resolve bundle + deploy + arm release guard ----
-    let charts_dir = resolve_charts_dir(chart);
-    // On failure, dump cluster state BEFORE unwinding — `_cluster_guard` is
-    // already armed, so the panic destroys the whole cluster and with it every
-    // artefact that could explain what went wrong. `--atomic` is off for e2e
-    // (see deploy.rs) specifically so the workloads are still around here.
-    //
-    // The namespace is not known until deploy returns Ok, so on the failure
-    // path fall back to the chart name — which is what every chart manifest in
-    // the bundle uses as its release namespace.
-    let release = deploy::deploy_chart(&handle, &charts_dir, chart).unwrap_or_else(|e| {
-        crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, chart);
-        panic!("[e2e-k8s:{}] deploy failed: {:#}", chart, e)
-    });
-    eprintln!(
-        "[e2e-k8s:{}] deployed: release={} namespace={}",
-        chart, release.release, release.namespace
-    );
-    let _release_guard = ReleaseGuard::arm(
-        release.clone(),
-        handle.kubeconfig.clone(),
-        env_keep_k8s(),
-    );
+        // ---- 5. resolve bundle + deploy + arm release guard ----
+        let charts_dir = resolve_charts_dir(chart);
 
-    // ---- 6. wait pods Ready ----
-    let deadline = Instant::now() + Duration::from_secs(env_timeout_secs_k8s());
-    readiness::wait_pods_ready(
-        &handle.kubeconfig,
-        &release.release,
-        &release.namespace,
-        deadline,
-    )
-    .unwrap_or_else(|e| {
-        // Same reasoning as the deploy path: capture before the guards unwind.
-        // This is the arm that would have shown superset's OOMKilled worker
-        // instead of an opaque `timed out waiting for the condition`.
-        crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, &release.namespace);
-        panic!("[e2e-k8s:{}] wait_pods_ready: {:#}", chart, e)
-    });
-    eprintln!("[e2e-k8s:{}] pods Ready", chart);
+        // NOTE: declared before `_release_guard`. Locals drop in reverse order, so
+        // the chart under test is uninstalled before the releases it runs on.
+        let mut _prerequisite_guards = Vec::new();
+        for pre in stack_prerequisites(&charts_dir, chart) {
+            let rel = deploy::deploy_chart(&handle, &charts_dir, &pre).unwrap_or_else(|e| {
+                crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, &pre);
+                panic!("[e2e-k8s:{}] prerequisite {} deploy failed: {:#}", chart, pre, e)
+            });
+            _prerequisite_guards.push(ReleaseGuard::arm(rel.clone(), handle.kubeconfig.clone(), env_keep_k8s()));
+            let deadline = Instant::now() + Duration::from_secs(env_timeout_secs_k8s());
+            readiness::wait_pods_ready(&handle.kubeconfig, &rel.release, &rel.namespace, deadline)
+                .unwrap_or_else(|e| {
+                    crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, &rel.namespace);
+                    panic!("[e2e-k8s:{}] prerequisite {} wait_pods_ready: {:#}", chart, pre, e)
+                });
+            eprintln!("[e2e-k8s:{}] prerequisite {} Ready", chart, pre);
+        }
 
-    // ---- 7. probe chain ----
-    let ctx = probes::K8sCtx {
-        handle: handle.clone(),
-        namespace: release.namespace.clone(),
-        release: release.release.clone(),
-        deadline,
-    };
-    let chain = probes::for_chart(chart, &ctx)
-        .unwrap_or_else(|e| panic!("[e2e-k8s:{}] probe chain: {:#}", chart, e));
-    for probe in chain {
-        eprintln!("[e2e-k8s:{}] probe: {}", chart, probe.name());
-        retry_until_sync(&deadline, || probe.run(&ctx))
-            .unwrap_or_else(|e| panic!("[e2e-k8s:{}] probe {} failed: {:#}", chart, probe.name(), e));
+        // On failure, dump cluster state BEFORE unwinding — `_cluster_guard` is
+        // already armed, so the panic destroys the whole cluster and with it every
+        // artefact that could explain what went wrong. `--atomic` is off for e2e
+        // (see deploy.rs) specifically so the workloads are still around here.
+        //
+        // The namespace is not known until deploy returns Ok, so on the failure
+        // path fall back to the chart name — which is what every chart manifest in
+        // the bundle uses as its release namespace.
+        let release = deploy::deploy_chart(&handle, &charts_dir, chart).unwrap_or_else(|e| {
+            crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, chart);
+            panic!("[e2e-k8s:{}] deploy failed: {:#}", chart, e)
+        });
+        eprintln!(
+            "[e2e-k8s:{}] deployed: release={} namespace={}",
+            chart, release.release, release.namespace
+        );
+        let _release_guard = ReleaseGuard::arm(
+            release.clone(),
+            handle.kubeconfig.clone(),
+            env_keep_k8s(),
+        );
+
+        // ---- 6. wait pods Ready ----
+        let deadline = Instant::now() + Duration::from_secs(env_timeout_secs_k8s());
+        readiness::wait_pods_ready(
+            &handle.kubeconfig,
+            &release.release,
+            &release.namespace,
+            deadline,
+        )
+        .unwrap_or_else(|e| {
+            // Same reasoning as the deploy path: capture before the guards unwind.
+            // This is the arm that would have shown superset's OOMKilled worker
+            // instead of an opaque `timed out waiting for the condition`.
+            crate::diagnostics::dump_namespace(chart, &handle.kubeconfig, &release.namespace);
+            panic!("[e2e-k8s:{}] wait_pods_ready: {:#}", chart, e)
+        });
+        eprintln!("[e2e-k8s:{}] pods Ready", chart);
+
+        // ---- 7. probe chain ----
+        let ctx = probes::K8sCtx {
+            handle: handle.clone(),
+            namespace: release.namespace.clone(),
+            release: release.release.clone(),
+            deadline,
+        };
+        let chain = probes::for_chart(chart, &ctx)
+            .unwrap_or_else(|e| panic!("[e2e-k8s:{}] probe chain: {:#}", chart, e));
+        for probe in chain {
+            eprintln!("[e2e-k8s:{}] probe: {}", chart, probe.name());
+            retry_until_sync(&deadline, || probe.run(&ctx))
+                .unwrap_or_else(|e| panic!("[e2e-k8s:{}] probe {} failed: {:#}", chart, probe.name(), e));
+        }
+
+        eprintln!("[e2e-k8s:{}] all probes passed", chart);
+        // _release_guard drops first (helm uninstall + ns delete), then
+        // _cluster_guard (k3d cluster delete + registry delete).
     }
 
-    eprintln!("[e2e-k8s:{}] all probes passed", chart);
-    // _release_guard drops first (helm uninstall + ns delete), then
-    // _cluster_guard (k3d cluster delete + registry delete).
+    // ---- 8. leak check ----
+    check_for_leaks(chart);
+}
+
+/// Post-teardown leak check for `target`, honoring both keep env vars
+/// (`FIRESTREAM_E2E_K8S_KEEP` and, per the shared contract, `FIRESTREAM_E2E_KEEP`).
+/// A leak fails the test.
+pub fn check_for_leaks(target: &str) {
+    use firestream_e2e_core::env::env_keep;
+    use firestream_e2e_core::leak;
+    use firestream_e2e_core::run_id::RunId;
+
+    let keep = env_keep_k8s() || env_keep();
+    if let Err(leaks) = leak::check(RunId::current(), Some(target), keep) {
+        panic!("{leaks}");
+    }
 }
