@@ -11,9 +11,11 @@
 # - metadata: derivation containing SBOM and metadata files
 # - isFirestreamArtifact: true for Rust CLI tools (distinguishes from containers)
 
-{ pkgs, lib, mkRustPackage }:
+{ pkgs, lib, mkRustPackage, fenix, system }:
 
 let
+  goToolchain = import ./go-toolchain.nix { inherit pkgs lib; };
+
   # Raw Rust packages without fleet manifest wrappers
   # These are the actual derivations built from source
   rawPackages = {
