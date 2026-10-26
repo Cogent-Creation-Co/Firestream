@@ -539,9 +539,11 @@ mod tests {
         assert_eq!(targets.iter().next().unwrap().repo, "firestream-airflow");
     }
 
+    static IMPORT_CMD_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn host_import_command_default_is_ctr() {
-        // SAFETY: single-threaded test; no other test mutates this var.
+        let _env = IMPORT_CMD_ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe {
             std::env::remove_var("FIRESTREAM_K8S_IMPORT_CMD");
         }
@@ -562,7 +564,7 @@ mod tests {
 
     #[test]
     fn host_import_command_honors_override() {
-        // SAFETY: single-threaded test; restored immediately after read.
+        let _env = IMPORT_CMD_ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe {
             std::env::set_var("FIRESTREAM_K8S_IMPORT_CMD", "sudo ctr -n k8s.io images import");
         }

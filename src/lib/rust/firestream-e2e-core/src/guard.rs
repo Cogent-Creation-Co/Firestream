@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 /// their own budgets in multiples of it.
 pub const POLL: Duration = Duration::from_millis(250);
 
+/// Upper bound for one teardown: a guard's `Drop`, or one entry drained by
+/// [`crate::cleanup`] after a signal.
+pub const TEARDOWN_BUDGET: Duration = Duration::from_secs(60);
+
 /// Wait up to `budget` for `child` to exit. Returns `Ok(())` on clean exit
 /// (any exit status), `Err(())` on timeout or on a `try_wait` IO error. On
 /// timeout the caller is responsible for killing the child and reaping.

@@ -10,6 +10,10 @@ license = "MIT"
 name = "firestream_e2e_core"
 path = "src/lib.rs"
 
+[[bin]]
+name = "firestream-e2e-sweep"
+path = "src/bin/firestream-e2e-sweep.rs"
+
 [dependencies]
 # Error handling
 anyhow = { workspace = true }
@@ -40,6 +44,12 @@ rand = "0.8"
 
 # Structured logging for cluster/teardown lifecycle events.
 tracing = { workspace = true }
+
+ctrlc = { workspace = true }
+# NOTE: ctrlc does not say which signal fired; a chained sigaction records it
+# so the handler can exit 130 for SIGINT and 143 for SIGTERM.
+libc = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # Used to gate env-mutation tests so they don't race each other.
