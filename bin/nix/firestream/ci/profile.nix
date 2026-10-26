@@ -97,6 +97,7 @@ let
     "redis"
     "seaweedfs"
     "spark"
+    "supabase"
     "superset"
   ];
 

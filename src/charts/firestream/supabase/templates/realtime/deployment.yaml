@@ -1,0 +1,145 @@
+{{- if .Values.deployment.realtime.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.realtime.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.realtime.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.realtime.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.realtime.enabled }}
+  replicas: {{ .Values.deployment.realtime.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.realtime.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.realtime.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.realtime.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.deployment.realtime.dnsPolicy }}
+      dnsPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.realtime.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.realtime.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.realtime.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.realtime.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.realtime.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.deployment.realtime.initDb }}
+        {{- include "supabase.db.waitInit" (dict "root" . "securityContext" .Values.deployment.realtime.securityContext) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.realtime.extraInitContainers }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.realtime.name" $ }}
+          image: {{ include "supabase.image" .Values.image.realtime | quote }}
+          imagePullPolicy: {{ .Values.image.realtime.pullPolicy }}
+          {{- with .Values.deployment.realtime.command }}
+          command:
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.deployment.realtime.args }}
+          args: 
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            {{- include "supabase.db.hostEnv" (dict "root" . "name" "DB_HOST") | nindent 12 }}
+            {{- include "supabase.db.portEnv" (dict "root" . "name" "DB_PORT") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "DB_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "DB_ENC_KEY" "key" "REALTIME_DB_ENC_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "API_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "API_JWT_JWKS" "key" "JWT_JWKS") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "METRICS_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SECRET_KEY_BASE" "key" "SECRET_KEY_BASE") | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.realtime) | nindent 12 }}
+          {{- with .Values.deployment.realtime.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.realtime.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # NOTE: the Elixir release writes RELEASE_TMP and /tmp at boot, so a
+          # read-only root filesystem needs both writable.
+          volumeMounts:
+            - name: release-tmp
+              mountPath: /opt/firestream/realtime/tmp
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.deployment.realtime.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.deployment.realtime.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.realtime.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.realtime.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.realtime.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.realtime.securityContext | nindent 12 }}
+      volumes:
+        - name: release-tmp
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.deployment.realtime.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

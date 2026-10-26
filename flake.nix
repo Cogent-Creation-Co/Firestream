@@ -62,6 +62,8 @@
         ./nix/flake-modules/ci-profile.nix
         ./nix/flake-modules/devshell.nix
         ./nix/flake-modules/checks.nix
+        ./nix/flake-modules/supabase.nix
+        ./nix/flake-modules/supabase-pinning.nix
         ./nix/flake-modules/registry.nix
         ./nix/flake-modules/aggregate.nix
         ./nix/flake-modules/docker-build.nix
@@ -99,6 +101,7 @@
         ./nix/flake-modules/charts/seaweedfs.nix
         ./nix/flake-modules/charts/nextjs.nix
         ./nix/flake-modules/charts/nginx.nix
+        ./nix/flake-modules/charts/supabase.nix
         # cloudflared has NO containers/ counterpart: the connector is
         # Cloudflare's upstream image, not a Firestream-built one.
         ./nix/flake-modules/charts/cloudflared.nix

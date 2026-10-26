@@ -1,0 +1,715 @@
+## Supabase Helm chart (Firestream fork)
+##
+## Forked from supabase-community/supabase-kubernetes (Apache-2.0) at commit
+## 8d4b5cda901a3f28535af5c79c5ed95e884e48d9 (chart version 0.8.0). See LICENSE.
+##
+## Firestream changes against upstream:
+## - Every image is a Firestream-built image (packages.supabase-*); each pod
+##   runs firestream-healthd on port 9180, and /readyz is the readiness probe.
+## - Envoy (supabase-envoy) replaces Kong. Supavisor is added.
+## - Removed: edge functions, analytics (Logflare), vector, MinIO, the helm
+##   test hooks and the upstream initdb SQL. The db image runs the Supabase
+##   migrations itself.
+## - One key Secret in the `supabase-keygen --output k8s-secret` layout
+##   replaces the per-domain jwt/apikey/db/dashboard/meta/realtime secrets.
+## - Storage always uses S3; by default the SeaweedFS chart of the
+##   firestreamStacks.supabase stack.
+##
+## Configuration is grouped by domain, as upstream:
+##  1. secret  2. deployment  3. image  4. environment  5. persistence
+##  6. service  7. autoscaling  8. ingress  9. serviceAccount
+## 10. networkPolicy  11. migration
+
+secret:
+  supabase:
+    ## Name of an existing Secret in the supabase-keygen layout. Create one with
+    ##   nix run .#supabase-keygen -- --output k8s-secret --name <name>
+    ## When set, `values` below is ignored and the chart renders no key Secret.
+    secretRef: ""
+    ## The published Firestream development key set
+    ## (firestreamLib.supabase.devSecrets). Never use it on a reachable cluster.
+    values:
+      ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkyNzE2MzkxLCJleHAiOjQ5NDg0NzYzOTF9.casn711TnwPN4TPsHC_V7V1BMlIgAdGUUt4OQ-3vgGk"
+      ANON_KEY_ASYMMETRIC: "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjVjOGYyNmU0LTBkM2MtNGFiZS1hNDFmLTg2ZTRhZWY5NDMwNyJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkyNzE2MzkxLCJleHAiOjQ5NDg0NzYzOTF9.lrtIQlYMtC3HUwby8OmdBEOmLwDcDKKUOquCYacqGutgiqWFocdRwSi5wbNIoUeddnG4tOHozxSzuMwlF6zg7Q"
+      DASHBOARD_PASSWORD: "firestream-supabase-dev"
+      DASHBOARD_USERNAME: "supabase"
+      JWT_JWKS: "{\"keys\":[{\"kty\":\"EC\",\"kid\":\"5c8f26e4-0d3c-4abe-a41f-86e4aef94307\",\"use\":\"sig\",\"alg\":\"ES256\",\"ext\":true,\"crv\":\"P-256\",\"x\":\"DzvdqhM9tOfqpHtSFVcQC8yRmE1ruEHYsR2QXGPKwyw\",\"y\":\"gClZWMUOtWz3JITwxIHRZHkDeANBssP4KqiN9TOPJwc\",\"key_ops\":[\"verify\"]},{\"kty\":\"oct\",\"k\":\"ZmlyZXN0cmVhbS1zdXBhYmFzZS1kZXYtand0LXNlY3JldC1ub3QtZm9yLXByb2R1Y3Rpb24\",\"alg\":\"HS256\"}]}"
+      JWT_KEYS: "[{\"kty\":\"EC\",\"kid\":\"5c8f26e4-0d3c-4abe-a41f-86e4aef94307\",\"use\":\"sig\",\"alg\":\"ES256\",\"ext\":true,\"crv\":\"P-256\",\"x\":\"DzvdqhM9tOfqpHtSFVcQC8yRmE1ruEHYsR2QXGPKwyw\",\"y\":\"gClZWMUOtWz3JITwxIHRZHkDeANBssP4KqiN9TOPJwc\",\"key_ops\":[\"sign\",\"verify\"],\"d\":\"Qs6eQ_AFfREuojRC73qXJzCc_8r3YgMuazkO32km54c\"},{\"kty\":\"oct\",\"k\":\"ZmlyZXN0cmVhbS1zdXBhYmFzZS1kZXYtand0LXNlY3JldC1ub3QtZm9yLXByb2R1Y3Rpb24\",\"alg\":\"HS256\"}]"
+      JWT_SECRET: "firestream-supabase-dev-jwt-secret-not-for-production"
+      PG_META_CRYPTO_KEY: "DEVONLY-firestream-pg-meta-crypto-key"
+      POSTGRES_PASSWORD: "firestream-supabase-dev"
+      REALTIME_DB_ENC_KEY: "DEVONLY-realtime"
+      SECRET_KEY_BASE: "DEVONLY-firestream-secret-key-base-not-for-production-use-anywhere"
+      SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3OTI3MTYzOTEsImV4cCI6NDk0ODQ3NjM5MX0.0KV7IggErJIXVxM-47LyR35umLzMrZ-LKHvOQqm51_A"
+      SERVICE_ROLE_KEY_ASYMMETRIC: "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjVjOGYyNmU0LTBkM2MtNGFiZS1hNDFmLTg2ZTRhZWY5NDMwNyJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3OTI3MTYzOTEsImV4cCI6NDk0ODQ3NjM5MX0.iTPsumNDVSiKk0Z1Uthl5EfoYKEGShvMJuLWIb0SULLxv2n6ywppzAS2ohvwmnfrYj0mtLy3zD6HsqRRwIYHRw"
+      SUPABASE_PUBLISHABLE_KEY: "sb_publishable_DEVONLY-firestream-pub_d67Ku9oa"
+      SUPABASE_SECRET_KEY: "sb_secret_DEVONLY-firestream-sec_GrOR6wDw"
+      VAULT_ENC_KEY: "DEVONLY-firestream-vault-key-32b"
+  ## SMTP credentials for Auth. An empty username means no SMTP; the dev
+  ## default confirms sign-ups at once (GOTRUE_MAILER_AUTOCONFIRM).
+  smtp:
+    secretRef: ""
+    secretRefKey: {}
+    username: ""
+    password: ""
+  ## S3 credentials of the Storage backend. The defaults are the SeaweedFS
+  ## chart's development credentials.
+  s3:
+    secretRef: ""
+    secretRefKey: {}
+    keyId: "firestream"
+    accessKey: "firestream-secret"
+
+deployment:
+  db:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+
+  auth:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    dnsPolicy: ""
+    dnsConfig: {}
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+    initDb: true
+
+  rest:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+    initDb: true
+
+  realtime:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    dnsPolicy: ""
+    dnsConfig: {}
+    command: []
+    args: []
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+    initDb: true
+
+  supavisor:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    dnsPolicy: ""
+    dnsConfig: {}
+    command: []
+    args: []
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+    initDb: true
+
+  meta:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+
+  storage:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    ## Create environment.storage GLOBAL_S3_BUCKET before Storage starts.
+    createBucket: true
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+    extraInitContainers: []
+    initDb: true
+
+  imgproxy:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+
+  studio:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    strategy: {}
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+
+  envoy:
+    enabled: true
+    replicaCount: 1
+    nameOverride: ""
+    fullnameOverride: ""
+    labels: {}
+    annotations: {}
+    podAnnotations: {}
+    podSecurityContext: {}
+    securityContext: {}
+    automountServiceAccountToken: false
+    terminationGracePeriodSeconds: 30
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    priorityClassName: ""
+    ## Writable directory for the rendered Envoy config (an in-memory emptyDir).
+    runDir: /opt/firestream/envoy/run
+    envFrom: []
+    livenessProbe: {}
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 9180
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 6
+    startupProbe: {}
+    lifecycle: {}
+    resources: {}
+    volumeMounts: []
+    volumes: []
+
+image:
+  db:
+    registry: ""
+    repository: firestream-supabase-postgres
+    tag: "17"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  auth:
+    registry: ""
+    repository: firestream-supabase-auth
+    tag: "2.197.0"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  rest:
+    registry: ""
+    repository: firestream-supabase-postgrest
+    tag: "14.1"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  realtime:
+    registry: ""
+    repository: firestream-supabase-realtime
+    tag: "2.143.3"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  supavisor:
+    registry: ""
+    repository: firestream-supabase-supavisor
+    tag: "2.9.13"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  meta:
+    registry: ""
+    repository: firestream-supabase-postgres-meta
+    tag: "0.100.0"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  storage:
+    registry: ""
+    repository: firestream-supabase-storage
+    tag: "1.81.0"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  imgproxy:
+    registry: ""
+    repository: firestream-supabase-imgproxy
+    tag: "3.31.4"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  studio:
+    registry: ""
+    repository: firestream-supabase-studio
+    tag: "2026.10.12"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  envoy:
+    registry: ""
+    repository: firestream-supabase-envoy
+    tag: "1.39.1"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+## Extra environment per component: a list of { name, value } or
+## { name, valueFrom } entries. The images carry their own defaults.
+environment:
+  db: []
+  auth:
+    - name: API_EXTERNAL_URL
+      value: "http://localhost:8000/auth/v1"
+    - name: GOTRUE_SITE_URL
+      value: "http://localhost:3000"
+    - name: GOTRUE_MAILER_AUTOCONFIRM
+      value: "true"
+  rest: []
+  realtime: []
+  supavisor: []
+  meta: []
+  storage:
+    - name: GLOBAL_S3_ENDPOINT
+      value: "http://seaweedfs-all-in-one.seaweedfs.svc.cluster.local:8333"
+    - name: GLOBAL_S3_BUCKET
+      value: "supabase-storage"
+    - name: GLOBAL_S3_FORCE_PATH_STYLE
+      value: "true"
+    - name: REGION
+      value: "us-east-1"
+    - name: STORAGE_S3_REGION
+      value: "us-east-1"
+    - name: STORAGE_PUBLIC_URL
+      value: "http://localhost:8000"
+  imgproxy: []
+  studio:
+    - name: SUPABASE_PUBLIC_URL
+      value: "http://localhost:8000"
+  envoy:
+    - name: SUPABASE_PUBLIC_URL
+      value: "http://localhost:8000"
+
+persistence:
+  db:
+    enabled: true
+    storageClassName: ""
+    annotations: {}
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+  ## imgproxy reads from the Storage S3 backend; no volume by default.
+  imgproxy:
+    enabled: false
+    storageClassName: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+  studio:
+    enabled: true
+    storageClassName: ""
+    annotations: {}
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+service:
+  db:
+    type: ClusterIP
+    port: 5432
+  auth:
+    type: ClusterIP
+    port: 9999
+  rest:
+    type: ClusterIP
+    port: 3000
+  realtime:
+    type: ClusterIP
+    port: 4000
+  supavisor:
+    type: ClusterIP
+    port: 4000
+    sessionPort: 5432
+    transactionPort: 6543
+  meta:
+    type: ClusterIP
+    port: 8080
+  storage:
+    type: ClusterIP
+    port: 5000
+  imgproxy:
+    type: ClusterIP
+    port: 5001
+  studio:
+    type: ClusterIP
+    port: 3000
+  envoy:
+    type: ClusterIP
+    port: 8000
+
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  labels: {}
+  annotations: {}
+  interval: 30s
+  scrapeTimeout: 10s
+  port: http
+  path: /metrics
+  scheme: http
+  tlsConfig: {}
+  relabelings: []
+  metricRelabelings: []
+  components:
+    db:
+      enabled: false
+    auth:
+      enabled: false
+    rest:
+      enabled: false
+    realtime:
+      enabled: false
+    supavisor:
+      enabled: false
+    meta:
+      enabled: false
+    storage:
+      enabled: false
+    imgproxy:
+      enabled: false
+    studio:
+      enabled: false
+    envoy:
+      enabled: false
+
+autoscaling:
+  db:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  auth:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  rest:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  realtime:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  supavisor:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  meta:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  storage:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  imgproxy:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  studio:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+  envoy:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  tls: []
+  hosts:
+    - host: supabase.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+serviceAccount:
+  db:
+    create: true
+    annotations: {}
+    name: ""
+  auth:
+    create: true
+    annotations: {}
+    name: ""
+  rest:
+    create: true
+    annotations: {}
+    name: ""
+  realtime:
+    create: true
+    annotations: {}
+    name: ""
+  supavisor:
+    create: true
+    annotations: {}
+    name: ""
+  meta:
+    create: true
+    annotations: {}
+    name: ""
+  storage:
+    create: true
+    annotations: {}
+    name: ""
+  imgproxy:
+    create: true
+    annotations: {}
+    name: ""
+  studio:
+    create: true
+    annotations: {}
+    name: ""
+  envoy:
+    create: true
+    annotations: {}
+    name: ""
+
+networkPolicy:
+  db:
+    enabled: false
+    ingressRules: []
+
+## SQL files run once, on the first boot of the database, after the Supabase
+## migrations. Each key is a file name, for example
+##   migration:
+##     10-app.sql: |
+##       create table public.todo (id bigint primary key, title text);
+migration: {}

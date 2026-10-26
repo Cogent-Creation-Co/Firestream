@@ -1,0 +1,105 @@
+{{- if .Values.deployment.meta.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.meta.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.meta.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.meta.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.meta.enabled }}
+  replicas: {{ .Values.deployment.meta.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.meta.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.meta.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.meta.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.meta.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.meta.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.meta.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.meta.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.meta.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.meta.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.meta.name" $ }}
+          image: {{ include "supabase.image" .Values.image.meta | quote }}
+          imagePullPolicy: {{ .Values.image.meta.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- include "supabase.db.hostEnv" (dict "root" . "name" "PG_META_DB_HOST") | nindent 12 }}
+            {{- include "supabase.db.portEnv" (dict "root" . "name" "PG_META_DB_PORT") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "PG_META_DB_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "CRYPTO_KEY" "key" "PG_META_CRYPTO_KEY") | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.meta) | nindent 12 }}
+          {{- with .Values.deployment.meta.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.meta.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.meta.securityContext | nindent 12 }}
+      {{- with .Values.deployment.meta.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,154 @@
+{{- if .Values.deployment.envoy.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.envoy.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.envoy.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.envoy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.envoy.enabled }}
+  replicas: {{ .Values.deployment.envoy.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.envoy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.envoy.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.envoy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.envoy.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.envoy.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.envoy.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.envoy.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.envoy.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.envoy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.envoy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.envoy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.envoy.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.envoy.name" $ }}
+          image: {{ include "supabase.image" .Values.image.envoy | quote }}
+          imagePullPolicy: {{ .Values.image.envoy.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: ENVOY_RUN_DIR
+              value: {{ .Values.deployment.envoy.runDir | quote }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "ANON_KEY" "key" "ANON_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SERVICE_ROLE_KEY" "key" "SERVICE_ROLE_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_PUBLISHABLE_KEY" "key" "SUPABASE_PUBLISHABLE_KEY" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_SECRET_KEY" "key" "SUPABASE_SECRET_KEY" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "ANON_KEY_ASYMMETRIC" "key" "ANON_KEY_ASYMMETRIC" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SERVICE_ROLE_KEY_ASYMMETRIC" "key" "SERVICE_ROLE_KEY_ASYMMETRIC" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "DASHBOARD_USERNAME" "key" "DASHBOARD_USERNAME" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "DASHBOARD_PASSWORD" "key" "DASHBOARD_PASSWORD") | nindent 12 }}
+            {{- if .Values.deployment.auth.enabled }}
+            - name: ENVOY_AUTH_HOST
+              value: {{ include "supabase.auth.fullname" . | quote }}
+            - name: ENVOY_AUTH_PORT
+              value: {{ .Values.service.auth.port | quote }}
+            {{- end }}
+            {{- if .Values.deployment.rest.enabled }}
+            - name: ENVOY_REST_HOST
+              value: {{ include "supabase.rest.fullname" . | quote }}
+            - name: ENVOY_REST_PORT
+              value: {{ .Values.service.rest.port | quote }}
+            {{- end }}
+            {{- if .Values.deployment.realtime.enabled }}
+            - name: ENVOY_REALTIME_HOST
+              value: {{ include "supabase.realtime.fullname" . | quote }}
+            - name: ENVOY_REALTIME_PORT
+              value: {{ .Values.service.realtime.port | quote }}
+            {{- end }}
+            {{- if .Values.deployment.storage.enabled }}
+            - name: ENVOY_STORAGE_HOST
+              value: {{ include "supabase.storage.fullname" . | quote }}
+            - name: ENVOY_STORAGE_PORT
+              value: {{ .Values.service.storage.port | quote }}
+            {{- end }}
+            {{- if .Values.deployment.meta.enabled }}
+            - name: ENVOY_META_HOST
+              value: {{ include "supabase.meta.fullname" . | quote }}
+            - name: ENVOY_META_PORT
+              value: {{ .Values.service.meta.port | quote }}
+            {{- end }}
+            {{- if .Values.deployment.studio.enabled }}
+            - name: ENVOY_STUDIO_HOST
+              value: {{ include "supabase.studio.fullname" . | quote }}
+            - name: ENVOY_STUDIO_PORT
+              value: {{ .Values.service.studio.port | quote }}
+            {{- end }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.envoy) | nindent 12 }}
+          {{- with .Values.deployment.envoy.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.envoy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # NOTE: the entrypoint renders the Envoy config, which holds the
+            # API keys, into this directory; it must not be the image layer.
+            - mountPath: {{ .Values.deployment.envoy.runDir }}
+              name: run
+            {{- with .Values.deployment.envoy.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.deployment.envoy.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.envoy.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.envoy.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.envoy.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.envoy.securityContext | nindent 12 }}
+      volumes:
+        - name: run
+          emptyDir:
+            medium: Memory
+        {{- with .Values.deployment.envoy.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: supabase
+description: Self-hosted Supabase on Firestream-built images (fork of supabase-community/supabase-kubernetes).
+type: application
+version: 0.8.0-firestream.1
+icon: https://avatars.githubusercontent.com/u/54469796?s=280&v=4
+annotations:
+  firestream.io/forked-from: https://github.com/supabase-community/supabase-kubernetes
+  firestream.io/forked-commit: 8d4b5cda901a3f28535af5c79c5ed95e884e48d9
+  firestream.io/forked-version: 0.8.0
+  firestream.io/license: Apache-2.0

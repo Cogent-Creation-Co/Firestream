@@ -1,0 +1,150 @@
+{{- if .Values.deployment.supavisor.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.supavisor.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.supavisor.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.supavisor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.supavisor.enabled }}
+  replicas: {{ .Values.deployment.supavisor.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.supavisor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.supavisor.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.supavisor.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.deployment.supavisor.dnsPolicy }}
+      dnsPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.supavisor.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.supavisor.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.supavisor.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.supavisor.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.supavisor.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.deployment.supavisor.initDb }}
+        {{- include "supabase.db.waitInit" (dict "root" . "securityContext" .Values.deployment.supavisor.securityContext) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.supavisor.extraInitContainers }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.supavisor.name" $ }}
+          image: {{ include "supabase.image" .Values.image.supavisor | quote }}
+          imagePullPolicy: {{ .Values.image.supavisor.pullPolicy }}
+          {{- with .Values.deployment.supavisor.command }}
+          command:
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.deployment.supavisor.args }}
+          args: 
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+            - name: session
+              containerPort: 5432
+              protocol: TCP
+            - name: transaction
+              containerPort: 6543
+              protocol: TCP
+          env:
+            {{- include "supabase.db.hostEnv" (dict "root" . "name" "POSTGRES_HOST") | nindent 12 }}
+            {{- include "supabase.db.portEnv" (dict "root" . "name" "POSTGRES_PORT") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "POSTGRES_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SECRET_KEY_BASE" "key" "SECRET_KEY_BASE") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "VAULT_ENC_KEY" "key" "VAULT_ENC_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "API_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "METRICS_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.supavisor) | nindent 12 }}
+          {{- with .Values.deployment.supavisor.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.supavisor.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # NOTE: the Elixir release writes RELEASE_TMP and /tmp at boot, so a
+          # read-only root filesystem needs both writable.
+          volumeMounts:
+            - name: release-tmp
+              mountPath: /opt/firestream/supavisor/tmp
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.deployment.supavisor.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.deployment.supavisor.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.supavisor.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.supavisor.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.supavisor.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.supavisor.securityContext | nindent 12 }}
+      volumes:
+        - name: release-tmp
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.deployment.supavisor.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,132 @@
+{{- if .Values.deployment.studio.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.studio.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.studio.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.studio.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.studio.enabled }}
+  replicas: {{ .Values.deployment.studio.replicaCount }}
+  {{- end }}
+  {{- with .Values.deployment.studio.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.studio.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.studio.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.studio.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.studio.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.studio.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.studio.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.studio.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.studio.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.studio.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.studio.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.studio.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.studio.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.studio.name" $ }}
+          image: {{ include "supabase.image" .Values.image.studio | quote }}
+          imagePullPolicy: {{ .Values.image.studio.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            {{- if .Values.deployment.envoy.enabled }}
+            - name: SUPABASE_URL
+              value: http://{{ include "supabase.envoy.fullname" . }}:{{ .Values.service.envoy.port }}
+            {{- end }}
+            {{- if .Values.deployment.meta.enabled }}
+            - name: STUDIO_PG_META_URL
+              value: http://{{ include "supabase.meta.fullname" . }}:{{ .Values.service.meta.port }}
+            {{- end }}
+            {{- include "supabase.db.hostEnv" (dict "root" . "name" "POSTGRES_HOST") | nindent 12 }}
+            {{- include "supabase.db.portEnv" (dict "root" . "name" "POSTGRES_PORT") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "POSTGRES_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "PG_META_CRYPTO_KEY" "key" "PG_META_CRYPTO_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_ANON_KEY" "key" "ANON_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_SERVICE_KEY" "key" "SERVICE_ROLE_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "AUTH_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_PUBLISHABLE_KEY" "key" "SUPABASE_PUBLISHABLE_KEY" "optional" true) | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SUPABASE_SECRET_KEY" "key" "SUPABASE_SECRET_KEY" "optional" true) | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.studio) | nindent 12 }}
+          {{- with .Values.deployment.studio.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.studio.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- with .Values.deployment.studio.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            # NOTE: Studio writes snippets and edge function files here.
+            - name: studio-data
+              mountPath: /firestream/studio/data
+          {{- with .Values.deployment.studio.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.studio.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.studio.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.studio.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.studio.securityContext | nindent 12 }}
+      volumes:
+        {{- with .Values.deployment.studio.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: studio-data
+          {{- if .Values.persistence.studio.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "supabase.pvc.name" (dict "root" $ "name" "studio") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

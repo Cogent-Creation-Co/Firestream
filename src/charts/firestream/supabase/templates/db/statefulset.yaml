@@ -1,0 +1,128 @@
+{{- if .Values.deployment.db.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "supabase.db.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.db.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.db.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.db.enabled }}
+  replicas: {{ .Values.deployment.db.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.db.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "supabase.db.fullname" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.db.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.db.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.db.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.db.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.db.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.db.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.db.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.db.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.db.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.db.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.db.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.deployment.db.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.db.name" $ }}
+          image: {{ include "supabase.image" .Values.image.db | quote }}
+          imagePullPolicy: {{ .Values.image.db.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5432
+              protocol: TCP
+          env:
+            {{- include "supabase.secret.env" (dict "root" . "name" "POSTGRESQL_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.db) | nindent 12 }}
+          {{- with .Values.deployment.db.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.db.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # NOTE: the image keeps both the data directory and
+            # pgsodium_root.key under this path. Losing the key makes every
+            # pgsodium and Vault secret unreadable, so the key stays on the PVC.
+            - mountPath: /firestream/postgresql
+              name: postgres-volume
+            {{- if .Values.migration }}
+            - mountPath: /docker-entrypoint-initdb.d
+              name: custom-migrations
+            {{- end }}
+            {{- with .Values.deployment.db.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.deployment.db.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.db.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.db.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.db.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.db.securityContext | nindent 12 }}
+      volumes:
+        {{- if .Values.migration }}
+        - name: custom-migrations
+          configMap:
+            name: {{ include "supabase.db.fullname" . }}-migrations
+        {{- end }}
+        {{- with .Values.deployment.db.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: postgres-volume
+          {{- if .Values.persistence.db.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "supabase.pvc.name" (dict "root" $ "name" "db") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

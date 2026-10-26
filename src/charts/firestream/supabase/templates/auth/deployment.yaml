@@ -1,0 +1,130 @@
+{{- if .Values.deployment.auth.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.auth.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.auth.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}    
+  {{- with .Values.deployment.auth.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.auth.enabled }}
+  replicas: {{ .Values.deployment.auth.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.auth.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.auth.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.deployment.auth.dnsPolicy }}
+      dnsPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.deployment.auth.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supabase.auth.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.auth.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.auth.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.auth.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.auth.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.auth.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.auth.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.auth.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.auth.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.deployment.auth.initDb }}
+        {{- include "supabase.db.waitInit" (dict "root" . "securityContext" .Values.deployment.auth.securityContext) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.auth.extraInitContainers }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.auth.name" $ }}
+          image: {{ include "supabase.image" .Values.image.auth | quote }}
+          imagePullPolicy: {{ .Values.image.auth.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 9999
+              protocol: TCP
+          env:
+            {{- include "supabase.secret.env" (dict "root" . "name" "DB_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            - name: GOTRUE_DB_DATABASE_URL
+              value: {{ include "supabase.db.url" (dict "root" . "user" "supabase_auth_admin") | quote }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "GOTRUE_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "GOTRUE_JWT_KEYS" "key" "JWT_KEYS") | nindent 12 }}
+            - name: GOTRUE_SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "supabase.secret.smtp.name" . }}
+                  key: {{ include "supabase.secret.smtp.key.username" . }}
+            - name: GOTRUE_SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "supabase.secret.smtp.name" . }}
+                  key: {{ include "supabase.secret.smtp.key.password" . }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.auth) | nindent 12 }}
+          {{- with .Values.deployment.auth.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.auth.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.auth.securityContext | nindent 12 }}
+      {{- with .Values.deployment.auth.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

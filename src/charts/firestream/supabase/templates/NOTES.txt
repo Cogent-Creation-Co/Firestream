@@ -1,0 +1,13 @@
+---
+Thank you for installing {{ .Chart.Name }}!
+{{ if .Values.ingress.enabled }}
+Visit the Studio dashboard at http://{{ (index .Values.ingress.hosts 0).host }}
+{{- end }}
+{{- if not .Values.secret.supabase.secretRef }}
+
+WARNING: this release uses the published Firestream development key set
+(secret.supabase.values). Never reach this release from an untrusted network.
+Generate a production key set and set secret.supabase.secretRef instead:
+  nix run .#supabase-keygen -- --output k8s-secret --name <name>
+  --set secret.supabase.secretRef=<name>
+{{- end }}

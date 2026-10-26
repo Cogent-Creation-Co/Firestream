@@ -1,0 +1,112 @@
+{{- if .Values.deployment.rest.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.rest.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.rest.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.rest.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.rest.enabled }}
+  replicas: {{ .Values.deployment.rest.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.rest.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.rest.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.rest.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.rest.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.rest.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.rest.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.rest.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.rest.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.rest.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.rest.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.rest.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.rest.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.deployment.rest.initDb }}
+        {{- include "supabase.db.waitInit" (dict "root" . "securityContext" .Values.deployment.rest.securityContext) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.rest.extraInitContainers }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "supabase.rest.name" $ }}
+          image: {{ include "supabase.image" .Values.image.rest | quote }}
+          imagePullPolicy: {{ .Values.image.rest.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            {{- include "supabase.secret.env" (dict "root" . "name" "DB_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            - name: PGRST_DB_URI
+              value: {{ include "supabase.db.url" (dict "root" . "user" "authenticator") | quote }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "PGRST_JWT_SECRET" "key" "JWT_JWKS") | nindent 12 }}
+            {{- include "supabase.env.render" (dict "env" .Values.environment.rest) | nindent 12 }}
+          {{- with .Values.deployment.rest.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.rest.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.rest.securityContext | nindent 12 }}
+      {{- with .Values.deployment.rest.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

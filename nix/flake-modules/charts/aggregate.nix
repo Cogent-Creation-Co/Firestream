@@ -143,6 +143,15 @@
         "cloudflared"
       ];
 
+      # The Supabase stack. Separate from `dev`: it is a second application
+      # platform with its own database, not a part of the data platform.
+      # SeaweedFS first, because Storage keeps its objects there and its
+      # init-bucket container waits for the S3 endpoint.
+      firestreamStacks.supabase = [
+        "seaweedfs"
+        "supabase"
+      ];
+
       packages.firestream-charts-bundle = pkgs.runCommand "firestream-charts-bundle"
         {
           # Surface the raw index value as passthru for debugging / Nix-side

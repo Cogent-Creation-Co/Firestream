@@ -1,0 +1,166 @@
+{{- if .Values.deployment.storage.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supabase.storage.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    {{- with .Values.deployment.storage.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.deployment.storage.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.storage.enabled }}
+  replicas: {{ .Values.deployment.storage.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supabase.storage.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "supabase.storage.selectorLabels" . | nindent 8 }}
+      {{- with .Values.deployment.storage.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "supabase.storage.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.deployment.storage.automountServiceAccountToken }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: {{ .Values.deployment.storage.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.deployment.storage.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.storage.pullSecrets}}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.storage.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.storage.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.storage.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.storage.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+      {{- if .Values.deployment.storage.initDb }}
+        {{- include "supabase.db.waitInit" (dict "root" . "securityContext" .Values.deployment.storage.securityContext) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.deployment.storage.createBucket }}
+        # NOTE: Storage needs GLOBAL_S3_BUCKET to exist and never creates it.
+        # The Storage image's own AWS SDK creates it, so any S3 backend works
+        # and no extra image is pulled.
+        - name: init-bucket
+          image: {{ include "supabase.image" .Values.image.storage | quote }}
+          imagePullPolicy: {{ .Values.image.storage.pullPolicy }}
+          env:
+            {{- include "supabase.storage.s3Env" . | nindent 12 }}
+          # WARNING: this script reads the app directory from the `cd` line of
+          # the image's storage-api wrapper, with bash built-ins only (the
+          # image has no sed). A change to that wrapper breaks the require().
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              while read -r line; do
+                case "$line" in "cd "*) cd "${line#cd }" ;; esac
+              done < "$(command -v storage-api)"
+              exec node -e '
+              const { S3Client, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3");
+              const s3 = new S3Client({ endpoint: process.env.GLOBAL_S3_ENDPOINT, region: process.env.REGION, forcePathStyle: true });
+              const Bucket = process.env.GLOBAL_S3_BUCKET;
+              (async () => {
+                for (let attempt = 0; attempt < 90; attempt++) {
+                  try {
+                    await s3.send(new HeadBucketCommand({ Bucket }));
+                    console.log(`bucket ${Bucket} exists`);
+                    return;
+                  } catch (e) {
+                    if (e.$metadata && e.$metadata.httpStatusCode === 404) {
+                      await s3.send(new CreateBucketCommand({ Bucket })).catch((c) => console.error(c.name, c.message));
+                    } else {
+                      console.error(`waiting for S3: ${e.name} ${e.message}`);
+                    }
+                  }
+                  await new Promise((r) => setTimeout(r, 2000));
+                }
+                process.exit(1);
+              })();'
+          securityContext:
+            {{- toYaml .Values.deployment.storage.securityContext | nindent 12 }}
+      {{- end }}
+        {{- with .Values.deployment.storage.extraInitContainers }}
+          {{ . | toYaml | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: {{ include "supabase.storage.name" $ }}
+          image: {{ include "supabase.image" .Values.image.storage | quote }}
+          imagePullPolicy: {{ .Values.image.storage.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            {{- include "supabase.secret.env" (dict "root" . "name" "DB_PASSWORD" "key" "POSTGRES_PASSWORD") | nindent 12 }}
+            - name: DATABASE_URL
+              value: {{ include "supabase.db.url" (dict "root" . "user" "supabase_storage_admin") | quote }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "ANON_KEY" "key" "ANON_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "SERVICE_KEY" "key" "SERVICE_ROLE_KEY") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "AUTH_JWT_SECRET" "key" "JWT_SECRET") | nindent 12 }}
+            {{- include "supabase.secret.env" (dict "root" . "name" "JWT_JWKS" "key" "JWT_JWKS") | nindent 12 }}
+            {{- if .Values.deployment.rest.enabled }}
+            - name: POSTGREST_URL
+              value: http://{{ include "supabase.rest.fullname" . }}:{{ .Values.service.rest.port }}
+            {{- end }}
+            {{- if .Values.deployment.imgproxy.enabled }}
+            - name: IMGPROXY_URL
+              value: http://{{ include "supabase.imgproxy.fullname" . }}:{{ .Values.service.imgproxy.port }}
+            {{- end }}
+            {{- include "supabase.storage.s3Env" . | nindent 12 }}
+          {{- with .Values.deployment.storage.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.deployment.storage.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.deployment.storage.securityContext | nindent 12 }}
+      {{- with .Values.deployment.storage.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

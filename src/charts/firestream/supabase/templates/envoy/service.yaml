@@ -1,0 +1,18 @@
+{{- if .Values.deployment.envoy.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supabase.envoy.fullname" . }}
+  labels:
+    {{- include "supabase.labels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+spec:
+  type: {{ .Values.service.envoy.type }}
+  ports:
+    - port: {{ .Values.service.envoy.port }}
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "supabase.envoy.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -33,7 +33,7 @@
 # populated on all systems by charts/airflow.nix, so we reference the bundle
 # lazily inside the derivation only.
 { ... }: {
-  perSystem = { pkgs, lib, config, ... }:
+  perSystem = { pkgs, lib, config, firestreamLib, ... }:
     let
       bundle = config.firestreamCharts.airflow.chartBundle;
       postgresqlBundle = config.firestreamCharts.postgresql.chartBundle;
@@ -46,6 +46,14 @@
       nextjsBundle = config.firestreamCharts.nextjs.chartBundle;
       nginxBundle = config.firestreamCharts.nginx.chartBundle;
       cloudflaredBundle = config.firestreamCharts.cloudflared.chartBundle;
+      supabaseBundle = config.firestreamCharts.supabase.chartBundle;
+      # DASHBOARD_USERNAME is excluded: its dev value is the literal string
+      # "supabase", which is also the chart and release name, so every render
+      # contains it regardless of which secret set is in play. It carries no
+      # distinguishing content to grep for.
+      supabaseDevSecretValuesFile = pkgs.writeText "supabase-dev-secret-values.txt"
+        (lib.concatStringsSep "\n" (builtins.attrValues
+          (builtins.removeAttrs firestreamLib.supabase.devSecrets [ "DASHBOARD_USERNAME" ])));
     in {
       checks.airflow-render-fidelity = pkgs.runCommand "airflow-render-fidelity"
         { nativeBuildInputs = [ pkgs.kubernetes-helm ]; } ''
@@ -805,6 +813,89 @@
 
         mkdir -p "$out"
         cp fidelity.diff "$out/" 2>/dev/null || true
+      '';
+
+      # ----------------------------------------------------------------------
+      # supabase render-fidelity check (Firestream fork, non-Bitnami).
+      #
+      # The forked values.yaml already names the Firestream images and holds
+      # the development key set, and the overlay writes both again: the image
+      # triples from the container registry and secret.supabase.values from
+      # firestreamLib.supabase.devSecrets. So the two renders must match with
+      # NO normalisation. A diff means an image bump or a regenerated dev key
+      # set did not reach the chart's values.yaml.
+      #
+      # The structural assertions encode the fork's commitments: every image
+      # is a Firestream image, Kong and the removed components stay out, a
+      # secretRef render creates no key Secret and holds no dev secret value,
+      # and the NOTES dev-key warning tracks whether secretRef is set.
+      # ----------------------------------------------------------------------
+      checks.supabase-render-fidelity = pkgs.runCommand "supabase-render-fidelity"
+        { nativeBuildInputs = [ pkgs.kubernetes-helm ]; } ''
+        set -euo pipefail
+        export HOME="$TMPDIR"
+        fail() { echo "SUPABASE RENDER FAILURE: $*"; exit 1; }
+
+        helm template supabase ${supabaseBundle}/chart > bare.yaml
+        helm template supabase ${supabaseBundle}/chart -f ${supabaseBundle}/values.yaml > withVals.yaml
+
+        if ! diff -u bare.yaml withVals.yaml > fidelity.diff; then
+          cat fidelity.diff
+          fail "the overlay changed the render; sync src/charts/firestream/supabase/values.yaml"
+        fi
+
+        for kind in Deployment StatefulSet Service Secret; do
+          grep -q "^kind: $kind$" bare.yaml || fail "no $kind rendered"
+        done
+        [ "$(grep -c '^kind: Deployment$' bare.yaml)" = 9 ] || fail "expected 9 Deployments"
+        if grep -E '^[[:space:]]*image:' bare.yaml | grep -v '"firestream-supabase-'; then
+          fail "an image is not a Firestream Supabase image"
+        fi
+        if grep -qiE 'kong|logflare|minio|edge-runtime|vector' bare.yaml; then
+          fail "a removed upstream component is still rendered"
+        fi
+
+        helm template supabase ${supabaseBundle}/chart -f ${supabaseBundle}/values.yaml \
+          --set secret.supabase.secretRef=supabase-secrets > ref.yaml
+        if grep -q 'name: supabase-supabase-keys' ref.yaml; then
+          fail "secretRef still renders the key Secret"
+        fi
+        grep -q 'name: supabase-secrets' ref.yaml || fail "secretRef is not referenced"
+
+        # `helm template` strips templates/NOTES.txt by name (install/upgrade
+        # -only output) and `helm install --dry-run` needs a reachable
+        # cluster even in client mode, so neither renders it hermetically.
+        # Render the identical Go template text under an ordinary template
+        # name instead: comment every line first, so the chart's other
+        # requirement (every rendered template is valid YAML) holds for free
+        # text, then --show-only picks the one file.
+        mkdir -p chart-copy/templates
+        cp -r ${supabaseBundle}/chart/. chart-copy
+        chmod -R u+w chart-copy
+        rm chart-copy/templates/NOTES.txt
+        sed 's/^/# /' ${supabaseBundle}/chart/templates/NOTES.txt > chart-copy/templates/notes-check.yaml
+
+        helm template supabase chart-copy -f ${supabaseBundle}/values.yaml \
+          --show-only templates/notes-check.yaml > withNotes.out
+        grep -q 'development key set' withNotes.out || fail "no dev-key warning in NOTES"
+
+        helm template supabase chart-copy -f ${supabaseBundle}/values.yaml \
+          --set secret.supabase.secretRef=supabase-secrets \
+          --show-only templates/notes-check.yaml > refNotes.out
+        if grep -q 'development key set' refNotes.out; then
+          fail "secretRef render still prints the dev-key warning"
+        fi
+        while IFS= read -r value; do
+          [ -n "$value" ] || continue
+          b64="$(printf '%s' "$value" | base64 -w0)"
+          if grep -qF "$value" ref.yaml || grep -qF "$b64" ref.yaml; then
+            fail "secretRef render still contains a dev secret value"
+          fi
+        done < ${supabaseDevSecretValuesFile}
+
+        echo "supabase render fidelity OK"
+        mkdir -p "$out"
+        cp fidelity.diff "$out/"
       '';
 
       # NOTE: the odoo_base addon `cp_auth_google` reads the files through
