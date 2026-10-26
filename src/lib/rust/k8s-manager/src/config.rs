@@ -41,6 +41,17 @@ pub struct K3dClusterConfig {
     
     /// Timeout configuration
     pub timeouts: K3dTimeoutConfig,
+
+    /// Keep this cluster's kubeconfig out of the default file
+    /// (`$KUBECONFIG` / `~/.kube/config`): `k3d cluster create` is run with
+    /// `--kubeconfig-update-default=false --kubeconfig-switch-context=false`,
+    /// `fix_kubeconfig_for_container` and the post-create `use-context` call
+    /// are both skipped. `false` (the default) keeps every existing caller's
+    /// behavior byte-for-byte; the e2e harness is the only caller that sets
+    /// this `true`, because it reads the cluster's kubeconfig straight from
+    /// `k3d kubeconfig get` and must never touch a developer's default file.
+    #[serde(default)]
+    pub isolate_kubeconfig: bool,
 }
 
 impl Default for K3dClusterConfig {
@@ -58,6 +69,7 @@ impl Default for K3dClusterConfig {
             network: K3dNetworkConfig::default(),
             dev_mode: None,
             timeouts: K3dTimeoutConfig::default(),
+            isolate_kubeconfig: false,
         }
     }
 }

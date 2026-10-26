@@ -49,6 +49,13 @@ fn e2e_k8s_cluster_lifecycle() {
         return;
     }
 
+    firestream_e2e_core::cleanup::install_signal_handler().expect("install signal handler");
+    let _host_lock = firestream_e2e_core::lock::HostLock::acquire().expect("acquire host e2e lock");
+
+    // The cluster + its guard live in their own block so the guard drops
+    // (tearing the cluster down) BEFORE the leak check below runs.
+    {
+
     let handle = cluster::create_cluster("lifecycle").expect("create_cluster");
     eprintln!(
         "[e2e-k8s:lifecycle] cluster up: name={} kubeconfig={}",
@@ -80,6 +87,9 @@ fn e2e_k8s_cluster_lifecycle() {
         nodes
     );
     eprintln!("[e2e-k8s:lifecycle] nodes={}", nodes.lines().count());
+    }
+
+    firestream_e2e_k8s::harness::check_for_leaks("lifecycle");
 }
 
 // ---- Phase 3 charts ----

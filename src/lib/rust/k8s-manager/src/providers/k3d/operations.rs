@@ -503,7 +503,7 @@ impl K3dClusterManager {
             "-p",
             &format!("{}:{}@loadbalancer", self.config.https_port, self.config.https_port),
         ]);
-        
+
         // Add registry if enabled
         if self.config.registry.enabled {
             cmd.args(&[
@@ -511,7 +511,7 @@ impl K3dClusterManager {
                 &format!("k3d-{}:{}", registry_name, self.config.registry.port),
             ]);
         }
-        
+
         cmd.args(&[
             "--image",
             &format!("rancher/k3s:{}", self.config.k3s_version),
@@ -520,21 +520,39 @@ impl K3dClusterManager {
             "--agents",
             &self.config.agents.to_string(),
         ]);
-        
+
+        if self.config.isolate_kubeconfig {
+            cmd.args(&[
+                "--kubeconfig-update-default=false",
+                "--kubeconfig-switch-context=false",
+            ]);
+        }
+
         let status = cmd.status().await
             .map_err(|e| K8sManagerError::ProcessError(format!("Failed to create cluster: {}", e)))?;
-        
+
         if !status.success() {
             return Err(K8sManagerError::GeneralError("Failed to create cluster".to_string()));
         }
-        
+
         // Wait for cluster to be fully initialized
         info!("Waiting for cluster to initialize...");
         sleep(Duration::from_secs(3)).await;
-        
+
+        if self.config.isolate_kubeconfig {
+            // WARNING: `fix_kubeconfig_for_container` and `use-context` both
+            // write to the DEFAULT kubeconfig (no `--kubeconfig` flag of
+            // their own) — running either here would defeat the isolation
+            // this branch exists for. Callers that set
+            // `isolate_kubeconfig` fetch a cluster-scoped kubeconfig
+            // themselves via `k3d kubeconfig get`, which only prints to
+            // stdout and never touches the default file.
+            return Ok(());
+        }
+
         // Fix the kubeconfig if we're in a container
         self.fix_kubeconfig_for_container().await?;
-        
+
         // Set kubectl context
         let _ = Command::new("kubectl")
             .args(&[
@@ -544,27 +562,21 @@ impl K3dClusterManager {
             ])
             .status()
             .await;
-        
-        
+
+
         Ok(())
     }
-    
-    /// Delete the cluster
+
+    /// Delete the cluster.
+    ///
+    /// Order matters: the registry container references the cluster's
+    /// docker network, so it is removed first; then the cluster (which
+    /// takes the network with it in the common case); then the network and
+    /// the `-images` volume are removed defensively in case a still-attached
+    /// container (the registry, or a leftover node) kept either alive.
     pub async fn delete_cluster(&self) -> Result<()> {
         info!("Deleting K3D cluster '{}'", self.config.name);
-        
-        
-        // Delete cluster
-        let status = Command::new("k3d")
-            .args(&["cluster", "delete", &self.config.name])
-            .status()
-            .await?;
-        
-        if !status.success() {
-            return Err(K8sManagerError::GeneralError("Failed to delete cluster".to_string()));
-        }
-        
-        // Also delete the associated registry if it exists
+
         if self.config.registry.enabled {
             let registry_name = if self.config.registry.name.contains(&self.config.name) {
                 self.config.registry.name.clone()
@@ -574,16 +586,37 @@ impl K3dClusterManager {
                 self.config.registry.name.clone()
             };
             info!("Deleting associated registry '{}'", registry_name);
-            
+
             let _ = Command::new("k3d")
                 .args(&["registry", "delete", &registry_name])
                 .status()
                 .await;
-            
+
             // Wait a bit for cleanup
             sleep(Duration::from_secs(1)).await;
         }
-        
+
+        let status = Command::new("k3d")
+            .args(&["cluster", "delete", &self.config.name])
+            .status()
+            .await?;
+
+        if !status.success() {
+            return Err(K8sManagerError::GeneralError("Failed to delete cluster".to_string()));
+        }
+
+        let network_name = format!("k3d-{}", self.config.name);
+        let _ = Command::new("docker")
+            .args(&["network", "rm", &network_name])
+            .status()
+            .await;
+
+        let images_volume = format!("k3d-{}-images", self.config.name);
+        let _ = Command::new("docker")
+            .args(&["volume", "rm", &images_volume])
+            .status()
+            .await;
+
         Ok(())
     }
     

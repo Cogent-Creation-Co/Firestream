@@ -143,7 +143,26 @@
 
         if [ "$DO_LOAD" -eq 1 ]; then
           echo ">>> Loading into Docker daemon..." >&2
-          docker load < "$TARBALL"
+          # NOTE: `docker load` moves the tag to the new image and leaves the
+          # previous image as an untagged <none> entry. The ids are read before
+          # the load so that only the image this load displaced is removed;
+          # a bulk `docker image prune` would also remove unrelated images.
+          PREVIOUS_IMAGES="$(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}')"
+          LOAD_OUTPUT="$(docker load < "$TARBALL")"
+          printf '%s\n' "$LOAD_OUTPUT"
+          printf '%s\n' "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p' | while read -r ref; do
+            previous_id="$(printf '%s\n' "$PREVIOUS_IMAGES" | awk -v ref="$ref" '$1 == ref { print $2; exit }')"
+            [ -n "$previous_id" ] || continue
+            current_id="$(docker image inspect -f '{{.Id}}' "$ref")"
+            [ "$previous_id" != "$current_id" ] || continue
+            tag_count="$(docker image inspect -f '{{len .RepoTags}}' "$previous_id" 2>/dev/null)" || continue
+            [ "$tag_count" = 0 ] || continue
+            if docker image rm "$previous_id" >/dev/null; then
+              echo ">>> Removed the previous image of $ref ($previous_id)" >&2
+            else
+              echo ">>> Kept the previous image of $ref ($previous_id): it is still in use" >&2
+            fi
+          done
         fi
       '';
 
