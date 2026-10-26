@@ -95,6 +95,12 @@ If you make a new development key set, update `dev-secrets.json` and
 `secret.supabase.values` in the chart `values.yaml` together. Make the set
 with `nix run .#supabase-keygen -- --output json`.
 
+Make each development value obvious to a reader. Put `DEVONLY` or `dev`
+in each password and key, for example `sb_secret_DEVONLY-firestream-sec_<checksum>`.
+Keep the lengths that `keygen.py` requires. Compute the 8-character
+checksum of an opaque key as `opaque_key` in `keygen.py` does. The signed
+JWTs and the EC key cannot be obvious. They stay random.
+
 ## Bump Envoy
 
 1. Find the commit of the new Envoy release tag. Set `rev` and `hash` of the
