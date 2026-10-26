@@ -105,4 +105,28 @@ in {
   # by the seaweedfs container's runtimeBinDeps (threaded via the container
   # flake-module's extraFactoryArgs).
   seaweedfs-weed = import ./seaweedfs-weed.nix { inherit pkgs lib; };
+
+  # imgproxy at the Supabase-pinned version (buildGoModule, exposed directly
+  # like seaweedfs-weed). Consumed by the imgproxy container.
+  imgproxy = import ./imgproxy.nix { inherit pkgs lib goToolchain; };
+
+  # supabase-auth: Supabase Auth (GoTrue), built from a pinned upstream rev.
+  supabase-auth = import ./supabase-auth.nix { inherit pkgs lib goToolchain; };
+
+  # envoy: Envoy for the Supabase gateway, built offline by Bazel from
+  # per-dependency pins (envoy/deps.json).
+  envoy = import ./envoy { inherit pkgs lib fenix system; };
+
+  # goToolchain: { go; buildGoModule; } at a Go newer than the pin's, for
+  # supabase-auth and imgproxy.
+  inherit goToolchain;
+
+  # postgresqlExtensionsFor: Postgres extensions that nixpkgs does not ship
+  # (supautils, supabase_vault, plan_filter), built against the given
+  # `postgresql_<N>`. A function, not a package, because an extension must be
+  # built against the exact server it loads into. Consumed by the postgresql
+  # container's `extensions` option, which merges the set into
+  # `postgresql.pkgs`.
+  # Usage: (postgresqlExtensionsFor pkgs.postgresql_17).supabase_vault
+  postgresqlExtensionsFor = import ./postgresql-extensions { inherit pkgs lib; };
 }

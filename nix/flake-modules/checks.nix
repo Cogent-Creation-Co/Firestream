@@ -16,7 +16,7 @@
 # check cannot see it — the flake source is the git tree. That guard lives in
 # bin/build/check-embedded-sync.sh / `make check-embedded-sync`.
 { inputs, ... }: {
-  perSystem = { pkgs, system, lib, config, ... }:
+  perSystem = { pkgs, system, lib, config, firestreamLib, ... }:
     let
       isLinux = pkgs.stdenv.hostPlatform.isLinux;
       tests = import ../../bin/nix/firestream/tests {
@@ -170,13 +170,226 @@
           python ${odooDir}/tests/test_odoo_backup.py
           touch "$out"
         '';
+
+      # NOTE: the image's PATH is the `/bin` of its listed contents only; a
+      # tool that is merely in the closure is not on PATH. `tar -z` execs
+      # `gzip` from PATH, so the backup Job fails at run time, not at build
+      # time, when one of these tools leaves `runtimeBinDeps`. `runtimeEnv`
+      # links the same contents as the image the odoo chart deploys.
+      odooBackupTools =
+        let
+          runtimeEnv = (config.firestreamImages.odoo.eval (_: { })).module.runtimeEnv;
+          tools = [ "bash" "gzip" "tar" "pg_dump" "psql" "aws" "pgrep" "mktemp" ];
+        in
+        pkgs.runCommand "firestream-odoo-backup-tools" { } ''
+          missing=""
+          for tool in ${lib.concatStringsSep " " tools}; do
+            [ -x "${runtimeEnv}/bin/$tool" ] || missing="$missing $tool"
+          done
+          if [ -n "$missing" ]; then
+            echo "FAIL: odoo image lacks backup tools:$missing"
+            exit 1
+          fi
+          echo "PASS: odoo image has ${lib.concatStringsSep ", " tools}"
+          touch "$out"
+        '';
+
+      # NOTE: the stock postgresql image backs the postgresql chart and the
+      # airflow, superset, odoo, jupyterhub and nextjs subcharts. If the unset
+      # extensions option stops being inert, every one of them changes image
+      # without a visible diff.
+      postgresqlExtensionsSeam =
+        let
+          probe = app: setOpt:
+            let
+              img = config.firestreamImages.${app};
+              plain = img.eval ({ ... }: { config = { }; });
+              explicit = img.eval setOpt;
+            in
+            plain.dockerImage.drvPath == explicit.dockerImage.drvPath;
+          unset = { ... }: { config.postgresql = { extensions = null; extraConf = ""; readyAfterInit = false; }; };
+          supabase = config.firestreamImages.supabase-postgres.eval ({ ... }: { config = { }; });
+          results = {
+            postgresql16Inert = probe "postgresql-16" unset;
+            postgresql17Inert = probe "postgresql-17" unset;
+            supabaseDiffers = supabase.dockerImage.drvPath != config.firestreamImages.postgresql-17.dockerImage.drvPath;
+            supabaseWalLogical = supabase.env.POSTGRESQL_WAL_LEVEL == "logical";
+            supabasePreloadsVault = lib.hasInfix "supabase_vault" supabase.env.POSTGRESQL_SHARED_PRELOAD_LIBRARIES;
+            supabaseImageName = supabase.imageName == "firestream-supabase-postgres";
+            supabaseReadyAfterInit = lib.hasPrefix "test -e " supabase.config.postgresql.health.readinessCmd;
+          };
+          failed = lib.filterAttrs (_: ok: !ok) results;
+        in
+        pkgs.runCommand "firestream-postgresql-extensions-seam" { } (
+          if failed == { } then ''
+            echo "PASS: postgresql extensions seam (${toString (builtins.length (builtins.attrNames results))} assertions)"
+            touch $out
+          '' else ''
+            echo "FAIL: postgresql extensions seam: ${lib.concatStringsSep ", " (builtins.attrNames failed)}"
+            exit 1
+          ''
+        );
+
+      # NOTE: an upstream pin bump changes 60-odd SQL files at once. This check
+      # applies them to the image's own server, extension set and settings, so
+      # a bump that breaks a migration fails here and not on a user's first
+      # boot. The container glue around migrate.sh is the e2e suite's job.
+      supabasePostgresMigrations =
+        let
+          eval = config.firestreamImages.supabase-postgres.eval ({ ... }: { config = { }; });
+          cfg = eval.config.postgresql;
+          server = pkgs.postgresql_17.withPackages (ps:
+            cfg.extensions (ps // firestreamLib.packages.postgresqlExtensionsFor pkgs.postgresql_17));
+          extraConf = pkgs.writeText "firestream.conf" cfg.extraConf;
+        in
+        pkgs.runCommand "firestream-supabase-postgres-migrations" { nativeBuildInputs = [ server ]; } ''
+          set -euo pipefail
+          work="$TMPDIR/work"
+          export PGDATA="$work/pg"
+          mkdir -p "$work"
+          initdb -U supabase_admin --auth=trust -E UTF8 -D "$PGDATA" > /dev/null
+          echo "CREATE ROLE postgres SUPERUSER LOGIN;" | postgres --single -D "$PGDATA" postgres > /dev/null
+          cat ${extraConf} >> "$PGDATA/postgresql.conf"
+          echo "shared_preload_libraries = '${eval.env.POSTGRESQL_SHARED_PRELOAD_LIBRARIES}'" >> "$PGDATA/postgresql.conf"
+          export POSTGRESQL_PGSODIUM_ROOT_KEY="$(printf '%064d' 0)"
+          pg_ctl -D "$PGDATA" -w -t 300 start > /dev/null -o "-k $work -c listen_addresses=127.0.0.1 -p 5432"
+          trap 'pg_ctl -D "$PGDATA" -m immediate stop > /dev/null' EXIT
+
+          export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=postgres
+          export POSTGRES_USER=supabase_admin POSTGRES_PASSWORD=check JWT_EXP=3600
+          sh ${firestreamLib.supabase.postgres.migrations}/migrate.sh > "$work/migrate.log" 2>&1 \
+            || { tail -20 "$work/migrate.log"; exit 1; }
+
+          q() { psql -h 127.0.0.1 -p 5432 -U "''${2:-supabase_admin}" -d postgres -Atqc "$1"; }
+          for s in auth storage realtime extensions graphql_public _realtime vault; do
+            test "$(q "SELECT count(*) FROM pg_namespace WHERE nspname = '$s'")" = 1 || { echo "FAIL: schema $s"; exit 1; }
+          done
+          for r in anon authenticated service_role authenticator supabase_auth_admin supabase_storage_admin pgbouncer; do
+            test "$(q "SELECT count(*) FROM pg_roles WHERE rolname = '$r'")" = 1 || { echo "FAIL: role $r"; exit 1; }
+          done
+          test "$(q "SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres'")" = f
+          test "$(q "SELECT count(*) FROM pg_database WHERE datname = '_supabase'")" = 1
+          test "$(q "SET ROLE anon; SELECT current_user" authenticator)" = anon
+          echo "PASS: $(grep -c ': running ' "$work/migrate.log") Supabase migration files apply on PostgreSQL ${pkgs.postgresql_17.version}"
+          touch "$out"
+        '';
+
+      # NOTE: Realtime and Supavisor are the only BEAM images, and both are
+      # large builds. This fixture proves the factory on its own: the release
+      # boots and serves, the pre-start hook shape works, no build-time cookie
+      # ships, and systemd stays out of the closure.
+      beamContainer =
+        let
+          release = firestreamLib.mkMixRelease {
+            pname = "beam_hello";
+            version = "0.1.0";
+            src = ../../bin/nix/firestream/tests/fixtures/beam-hello;
+            erlang = "erlang_27";
+            elixir = "elixir_1_18";
+          };
+          container = firestreamLib.mkBeamContainerModule {
+            name = "beam_hello";
+            version = "0.1.0";
+            inherit release;
+            preStart = ''
+              "$RELEASE_BIN" eval 'BeamHello.Release.migrate()'
+            '';
+            exposedPorts = [ 4000 ];
+          };
+          closure = pkgs.closureInfo { rootPaths = [ release ]; };
+        in
+        pkgs.runCommand "firestream-beam-container" { nativeBuildInputs = [ pkgs.bash ]; } ''
+          set -euo pipefail
+          test -e ${container.dockerImage}
+          if grep -q systemd ${closure}/store-paths; then echo "FAIL: systemd in the release closure"; exit 1; fi
+          if [ -e ${release}/releases/COOKIE ]; then echo "FAIL: a build-time cookie ships"; exit 1; fi
+          export RELEASE_TMP="$TMPDIR/release" RELEASE_COOKIE=check RELEASE_DISTRIBUTION=none HOME="$TMPDIR"
+          ${release}/bin/beam_hello eval 'BeamHello.Release.migrate()' | grep -q "migrate ran"
+          BEAM_HELLO_PORT=4040 ${release}/bin/beam_hello start &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for _ in $(seq 100); do
+            reply="$(bash -c 'exec 3<>/dev/tcp/127.0.0.1/4040 && cat <&3' 2>/dev/null || true)"
+            [ "$reply" = ok ] && break
+            sleep 0.2
+          done
+          test "$reply" = ok
+          echo "PASS: beam_hello release boots and serves; closure $(wc -l < ${closure}/store-paths) paths, no systemd, no cookie"
+          touch "$out"
+        '';
+
+      # NOTE: supautils and plan_filter are preload libraries with no
+      # extension control file, so `CREATE EXTENSION` cannot prove them. The
+      # check loads each one the way the Supabase image does, and fails if a
+      # server or library upgrade breaks the load.
+      postgresqlSupabaseExtensions =
+        let
+          ext = firestreamLib.packages.postgresqlExtensionsFor pkgs.postgresql_17;
+          pg = pkgs.postgresql_17.withPackages (_: [ ext.supautils ext.supabase_vault ext.plan_filter ]);
+        in
+        pkgs.runCommand "firestream-postgresql-supabase-extensions" { nativeBuildInputs = [ pg ]; } ''
+          set -euo pipefail
+          work="$TMPDIR/work"
+          export PGDATA="$work/pg"
+          mkdir -p "$work"
+          initdb -U postgres --auth=trust -D "$PGDATA" > /dev/null
+          printf '%064d\n' 0 > "$work/key"
+          printf '#!/bin/sh\ncat %s\n' "$work/key" > "$work/getkey"
+          chmod +x "$work/getkey"
+          pg_ctl -D "$PGDATA" -w -t 300 start > /dev/null -o "-k $work -c listen_addresses= \
+            -c shared_preload_libraries=plan_filter,supabase_vault \
+            -c session_preload_libraries=supautils -c vault.getkey_script=$work/getkey"
+          trap 'pg_ctl -D "$PGDATA" -m immediate stop > /dev/null' EXIT
+          q() { psql -h "$work" -U postgres -d postgres -Atqc "$1"; }
+          q "CREATE EXTENSION supabase_vault"
+          q "SELECT vault.create_secret('probe', 'probe')" > /dev/null
+          test "$(q "SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'probe'")" = probe
+          test "$(q "SHOW plan_filter.statement_cost_limit")" = 0
+          test "$(q "SELECT count(*) FROM pg_settings WHERE name LIKE 'supautils.%'")" -gt 0
+          echo "PASS: supautils, supabase_vault and plan_filter load on PostgreSQL ${pkgs.postgresql_17.version}"
+          touch "$out"
+        '';
+
+      # NOTE: the vendored pnpm2nix reads pnpm-lock.json because a YAML parse
+      # at eval time is import-from-derivation. This check is the only link
+      # between each pnpm-lock.yaml and its JSON copy.
+      pnpmLockJson =
+        let
+          root = ../../src/containers/firestream;
+          subdirs = d: lib.attrNames (lib.filterAttrs (_: t: t == "directory") (builtins.readDir (root + "/${d}")));
+          # NOTE: two levels, the same as the find in pnpm-lock-json.sh, so
+          # that an app can hold a second lockfile, such as assets/.
+          lockDirs = lib.filter
+            (d: builtins.pathExists (root + "/${d}/pnpm-lock.yaml"))
+            (lib.concatMap (d: [ d ] ++ map (s: "${d}/${s}") (subdirs d)) (subdirs ""));
+          compare = d: ''
+            yaml2json --indent 2 ${root + "/${d}/pnpm-lock.yaml"} "$TMPDIR/lock.json"
+            if ! cmp -s "$TMPDIR/lock.json" ${root + "/${d}/pnpm-lock.json"}; then
+              echo "FAIL: src/containers/firestream/${d}/pnpm-lock.json is stale; run bin/nix/firestream/node/pnpm-lock-json.sh"
+              fail=1
+            fi
+          '';
+        in
+        pkgs.runCommand "firestream-pnpm-lock-json" { nativeBuildInputs = [ pkgs.remarshal ]; } ''
+          fail=0
+          ${lib.concatMapStrings compare lockDirs}
+          [ "$fail" = 0 ] || exit 1
+          echo "PASS: pnpm-lock.json matches pnpm-lock.yaml in ${lib.concatStringsSep ", " lockDirs}"
+          touch "$out"
+        '';
     in
     {
       checks = lib.optionalAttrs isLinux {
+        firestream-pnpm-lock-json = pnpmLockJson;
         firestream-tests = tests.all;
         firestream-odoo-backup = odooBackup;
+        firestream-odoo-backup-tools = odooBackupTools;
         firestream-python-workspace-seam = pythonWorkspaceSeam;
         firestream-odoo-module-sync = odooModuleSync;
+        firestream-postgresql-supabase-extensions = postgresqlSupabaseExtensions;
+        firestream-postgresql-extensions-seam = postgresqlExtensionsSeam;
+        firestream-supabase-postgres-migrations = supabasePostgresMigrations;
+        firestream-beam-container = beamContainer;
 
         # Individual test modules (for granular testing)
         firestream-log-tests = tests.logTests;
