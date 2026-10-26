@@ -24,8 +24,12 @@ let
   defaults = import ../env/defaults.nix { inherit pkgs lib; };
   fileLoader = import ../env/file-loader.nix { inherit pkgs lib; };
 
+  # NOTE: the test reads only `config.postgresql.env*`, which never touch the
+  # module's own `config`. A throw keeps it that way: an env default that
+  # starts to depend on other options fails here with a named error.
   pgOptions = import ../../../../src/containers/firestream/postgresql/options.nix {
     inherit lib pkgs;
+    config = throw "test-postgresql-env-aliases: the env defaults must not read other options";
   };
   unwrap = v: v.content or v; # strip lib.mkDefault override wrappers
   pgEnv = lib.mapAttrs (_: unwrap) pgOptions.config.postgresql.env;

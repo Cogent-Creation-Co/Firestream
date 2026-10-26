@@ -51,10 +51,10 @@ cat <<EOF
 ==> Up. Check status:
       docker compose -p $PROJECT ps
 
-    Open Odoo at http://127.0.0.1:42069
+    Open Odoo at http://127.0.0.1:8069
       login: admin
       password: admin
-    (baked container defaults; the DB user is odoo/odoo on host port 39432)
+    (baked container defaults; the DB user is odoo/odoo on host port 18432)
 
     Stop with: make down     (add -v / 'make clean' to drop the data volume)
 EOF

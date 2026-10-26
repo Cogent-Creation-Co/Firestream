@@ -151,15 +151,9 @@ in
 
     # Docker-compose topology: nextjs + a firestream-postgresql sidecar so
     # `.#nextjs-up` is a working out-of-the-box stack. Whole-block mkDefault.
-    #
-    # +36000 host-port offset (distinct from the 8 canonical apps, spacing 2000):
-    #   nextjs     3000 -> host 39000
-    #   postgresql 5432 -> host 41432
-    #   healthd    9180 -> host 45180
     compose = lib.mkDefault {
       projectName = "firestream-nextjs";
       dependencies = [ "postgresql" ];
-      hostPortOffset = 36000;
 
       sharedEnv = {
         PGHOST = "postgresql";
@@ -182,7 +176,7 @@ in
             POSTGRESQL_PASSWORD = "firestream";
             ALLOW_EMPTY_PASSWORD = "no";
           };
-          ports = [ "5432:5432" ];
+          ports = [ 5432 ];
           volumes = [ "postgresql_data:/firestream/postgresql" ];
           healthcheck = {
             test = [
@@ -198,7 +192,7 @@ in
           };
         };
         nextjs = {
-          ports = [ "3000:3000" ];
+          ports = [ 3000 ];
           dependsOn = [ "postgresql" ];
           healthcheck = {
             test = [

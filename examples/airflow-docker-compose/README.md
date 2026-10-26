@@ -47,7 +47,7 @@ make ps         # wait for services to be healthy
 ```
 
 ### 2. Reach Airflow + see the DAG
-Open <http://127.0.0.1:28090>, log in `admin` / `admin`, and confirm
+Open <http://127.0.0.1:11080>, log in `admin` / `admin`, and confirm
 **`hello_firestream`** is listed. Unpause + trigger it; the task logs
 "Hello from a Firestream-baked DAG!".
 
@@ -59,14 +59,14 @@ make clean      # stop AND drop the postgresql_data + redis_data volumes
 
 ## Ports & credentials
 
-From Firestream's generated compose file (a `+20000` host-port offset):
+From Firestream's port registry (`bin/nix/firestream/ports.nix` upstream):
 
 | Service | Container port | Host port |
 |---------|----------------|-----------|
-| Airflow api-server (web UI) | 8080 | **28090** |
-| Airflow healthd | 9180 | 29180 |
-| PostgreSQL | 5432 | 25432 |
-| Redis | 6379 | 26379 |
+| Airflow api-server (web UI) | 8080 | **11080** |
+| Airflow healthd | 9180 | 11180 |
+| PostgreSQL | 5432 | 11432 |
+| Redis | 6379 | 11379 |
 
 - **Web login:** `admin` / `admin` (baked container defaults; the compose file
   doesn't override them). Change by baking `config.airflow.env.AIRFLOW_PASSWORD`

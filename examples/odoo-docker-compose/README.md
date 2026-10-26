@@ -52,7 +52,7 @@ make ps        # wait for both services to be Up (postgresql: healthy)
 ```
 
 ### 3. Reach Odoo
-Open <http://127.0.0.1:42069>.
+Open <http://127.0.0.1:8069>.
 
 ### 4. Stop / reset
 ```bash
@@ -62,23 +62,22 @@ make clean     # stop AND drop the postgresql_data volume (full reset)
 
 ## Ports & credentials
 
-These come from Firestream's generated compose file (a fixed `+34000` host-port
-offset to avoid clashes). To change them, edit the app's compose block in
-`src/containers/firestream/odoo/options.nix` upstream.
+These come from Firestream's port registry, `bin/nix/firestream/ports.nix`
+upstream. To change them, edit the odoo rows there.
 
 | Service | Container port | Host port |
 |---------|----------------|-----------|
-| Odoo HTTP | 8069 | **42069** |
-| Odoo gevent (longpolling) | 8072 | 42072 |
-| Odoo healthd | 9180 | 43180 |
-| PostgreSQL | 5432 | 39432 |
+| Odoo HTTP | 8069 | **8069** |
+| Odoo gevent (longpolling) | 8072 | 8072 |
+| Odoo healthd | 9180 | 18180 |
+| PostgreSQL | 5432 | 18432 |
 
 - **Odoo admin login:** `admin` / `admin` (the container's baked defaults — the
   compose file doesn't override them). To change them, bake
   `config.odoo.env.ODOO_EMAIL` / `ODOO_PASSWORD` into the custom image via
   `firestream/odoo-image-overrides.nix`.
 - **Database:** user `odoo` / password `odoo`, database `firestream_odoo`,
-  reachable on host port 39432.
+  reachable on host port 18432.
 - **Persistence:** the named volume `postgresql_data`. `make clean` drops it.
 
 ## Vendoring extra addons

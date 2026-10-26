@@ -103,13 +103,6 @@ in
 
     exposedPorts = lib.mkDefault [ 8000 8081 ];
 
-    # Distinct host-port offset (spacing 2000) so all 8 canonical apps can run
-    # simultaneously on docker without colliding. jupyterhub=30000.
-    #   proxy    8000 -> host 38000
-    #   hub      8081 -> host 38081
-    #   healthd  9180 -> host 39180
-    compose.hostPortOffset = lib.mkDefault 30000;
-
     # Phase 4: enable in-image firestream-healthd. JupyterHub does not ship
     # a dedicated /health endpoint; /hub/ returns 200 (login) or 302
     # (redirect to login) once the hub process is serving.

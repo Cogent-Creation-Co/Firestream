@@ -45,10 +45,10 @@ cat <<EOF
 ==> Up. Check status:
       docker compose -p $PROJECT ps
 
-    Open the app at http://127.0.0.1:39000
+    Open the app at http://127.0.0.1:3000
       (the homepage runs a live SELECT against firestream-postgresql)
-    Health:  curl http://127.0.0.1:39000/api/health
-    Postgres is published on 127.0.0.1:41432.
+    Health:  curl http://127.0.0.1:3000/api/health
+    Postgres is published on 127.0.0.1:20432.
 
     Stop with: make down     (use 'make clean' to also drop the data volume)
 EOF

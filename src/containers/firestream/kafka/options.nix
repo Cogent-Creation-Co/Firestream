@@ -129,13 +129,6 @@
 
     exposedPorts = lib.mkDefault [ 9092 9093 ];
 
-    # Distinct host-port offset (spacing 2000) so all 8 canonical apps can run
-    # simultaneously on docker without colliding. kafka=26000.
-    #   kafka client     9092 -> host 35092
-    #   kafka controller 9093 -> host 35093
-    #   healthd          9180 -> host 35180
-    compose.hostPortOffset = lib.mkDefault 26000;
-
     # Phase 4: enable in-image firestream-healthd. The readinessCmd asks the
     # broker for its API versions over the configured client listener — this
     # proves metadata is serviceable, not just that the listener has bound.

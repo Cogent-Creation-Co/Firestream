@@ -80,12 +80,5 @@
       readinessCmd = lib.mkDefault
         ''curl -fsS -o /dev/null "http://localhost:''${NGINX_HTTP_PORT_NUMBER:-8080}/healthz"'';
     };
-
-    # Distinct host-port offset (spacing 2000) so every canonical app can run on
-    # docker simultaneously without colliding. nginx=38000 (next free slot after
-    # nextjs=36000):
-    #   nginx   8080 -> host 46080
-    #   healthd 9180 -> host 47180
-    compose.hostPortOffset = lib.mkDefault 38000;
   };
 }

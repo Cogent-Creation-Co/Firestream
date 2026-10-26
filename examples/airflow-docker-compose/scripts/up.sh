@@ -50,10 +50,10 @@ cat <<EOF
 ==> Up. Check status:
       docker compose -p $PROJECT ps
 
-    Open the Airflow web UI at http://127.0.0.1:28090
+    Open the Airflow web UI at http://127.0.0.1:11080
       login: admin
       password: admin
-    (baked container defaults; postgres on 25432, redis on 26379)
+    (baked container defaults; postgres on 11432, redis on 11379)
 
     The baked DAG appears as 'hello_firestream' in the DAG list.
 

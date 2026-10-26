@@ -48,9 +48,9 @@ make ps         # wait for services to be healthy
 ```
 
 ### 2. Reach the app
-Open <http://127.0.0.1:39000>. The homepage opens a `pg` pool and renders the
+Open <http://127.0.0.1:3000>. The homepage opens a `pg` pool and renders the
 live `select version(), now()` from firestream-postgresql.
-Health: `curl http://127.0.0.1:39000/api/health` → `{"status":"ok"}`.
+Health: `curl http://127.0.0.1:3000/api/health` → `{"status":"ok"}`.
 
 ### 3. Stop / reset
 ```bash
@@ -60,12 +60,12 @@ make clean      # stop AND drop the postgresql_data volume
 
 ## Ports & credentials
 
-From Firestream's generated compose file (a `+36000` host-port offset):
+From Firestream's port registry (`bin/nix/firestream/ports.nix` upstream):
 
 | Service | Container port | Host port |
 |---------|----------------|-----------|
-| Next.js (web) | 3000 | **39000** |
-| PostgreSQL | 5432 | 41432 |
+| Next.js (web) | 3000 | **3000** |
+| PostgreSQL | 5432 | 20432 |
 
 - **Database:** user `firestream`, password `firestream`, db `firestream_nextjs`
   (the compose `sharedEnv`/postgres service env). The app reads

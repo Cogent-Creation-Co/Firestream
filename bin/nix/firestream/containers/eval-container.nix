@@ -195,8 +195,8 @@ let
               type = lib.types.int;
               default = 9180;
               description = ''
-                Bind port for firestream-healthd (container-side). Use
-                compose.hostPortOffset for host-side mapping. When health.enable
+                Bind port for firestream-healthd (container-side). Its host port
+                comes from bin/nix/firestream/ports.nix. When health.enable
                 is true, this port is appended to exposedPorts.
               '';
             };
@@ -234,24 +234,17 @@ let
               description = "docker compose project name (-p).";
             };
             hostPortOffset = lib.mkOption {
-              type = lib.types.int;
-              default = 20000;
-              description = ''
-                Added to every published HOST port (container side unchanged) so
-                concurrent stacks can run side-by-side without colliding on the
-                host AND so canonical/well-known service ports on the developer
-                box (e.g. a local postgres on 5432, redis on 6379, spark on 8080)
-                are never grabbed by a firestream e2e stack by default. Applied to:
-                  (a) the default single-service branch in compose.nix
-                      (which publishes `{p}:{p}` for every exposedPort), and
-                  (b) numeric host sides of any service-declared `ports`
-                      entries in `compose.services.<n>.ports`.
-                Non-numeric or IP-prefixed entries (e.g. "127.0.0.1:5432:5432")
-                are passed through unchanged.
-                Default 20000 keeps every canonical stack out of the privileged-
-                feeling 0-9999 range. Individual stacks can pin a different
-                offset if they need a stable host port (see airflow).
-              '';
+              type = lib.types.raw;
+              default = null;
+              visible = false;
+              description = "Removed. Host ports come from bin/nix/firestream/ports.nix.";
+              apply = v:
+                if v == null then null
+                else throw ''
+                  compose.hostPortOffset of ${name} is removed. Every published host port
+                  comes from the registry bin/nix/firestream/ports.nix: add or edit the
+                  [ stack service containerPort hostPort ] row there.
+                '';
             };
             dependencies = lib.mkOption {
               type = lib.types.listOf lib.types.str;
@@ -292,9 +285,12 @@ let
                     description = "Per-service environment (merged over sharedEnv for own services).";
                   };
                   ports = lib.mkOption {
-                    type = lib.types.listOf lib.types.str;
+                    type = lib.types.listOf lib.types.port;
                     default = [];
-                    description = "Published ports, e.g. [ \"8090:8080\" ].";
+                    description = ''
+                      Container ports to publish on the host, e.g. [ 8080 9180 ]. The
+                      host port of each comes from bin/nix/firestream/ports.nix.
+                    '';
                   };
                   volumes = lib.mkOption {
                     type = lib.types.listOf lib.types.str;
@@ -408,7 +404,7 @@ let
   # ports so:
   #   (a) the docker image's ExposedPorts includes it,
   #   (b) the default single-service compose publishes it on the host,
-  #   (c) compose.hostPortOffset applies to it uniformly with the app ports.
+  #   (c) bin/nix/firestream/ports.nix gives it a host port like the app ports.
   # When health.enable is false, exposedPorts is byte-identical to today.
   effectiveExposedPorts =
     if cfg.health.enable

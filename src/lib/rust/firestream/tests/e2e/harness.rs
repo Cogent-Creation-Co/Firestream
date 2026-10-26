@@ -125,10 +125,12 @@ struct StackInfo {
     compose_file: PathBuf,
     /// docker compose project name.
     project: String,
-    /// Host ports published (post-offset).
+    /// Host ports published, from the registry `bin/nix/firestream/ports.nix`.
     host_ports: Vec<u16>,
-    /// Post-offset host port for firestream-healthd (Phase 3+). `None` when
-    /// the stack's container has `health.enable = false`.
+    /// Host port of each published container port, per compose service.
+    port_map: probes::PortMap,
+    /// Host port for firestream-healthd. `None` when the stack's container
+    /// has `health.enable = false`.
     health_host_port: Option<u16>,
     /// Image build order — this stack + its declared `compose.dependencies`.
     build_list: Vec<String>,
@@ -175,6 +177,12 @@ fn resolve_stack(stack: &str) -> anyhow::Result<StackInfo> {
         .filter_map(|n| u16::try_from(n).ok())
         .collect();
 
+    let port_map: probes::PortMap = serde_json::from_value(nix_eval_json(&format!(
+        ".#{}-compose.passthru.portMap",
+        stack
+    ))?)
+    .map_err(|e| anyhow::anyhow!("portMap of {}: {}", stack, e))?;
+
     let project_v = nix_eval_json(&format!(".#{}-compose.passthru.projectName", stack))?;
     let project = project_v
         .as_str()
@@ -189,9 +197,6 @@ fn resolve_stack(stack: &str) -> anyhow::Result<StackInfo> {
         .filter_map(|v| v.as_str().map(|s| s.to_string()))
         .collect();
 
-    // Phase 3: `healthHostPort` is `null` for stacks with health disabled,
-    // or `9180 + offset` for those that opted in. The harness reads it once
-    // here so per-probe code never recomputes the offset itself.
     let health_host_port = match nix_eval_json(&format!(
         ".#{}-compose.passthru.healthHostPort",
         stack
@@ -210,6 +215,7 @@ fn resolve_stack(stack: &str) -> anyhow::Result<StackInfo> {
         compose_file,
         project,
         host_ports,
+        port_map,
         health_host_port,
         build_list,
     })
@@ -248,21 +254,108 @@ fn nix_run_up(stack: &str, project: &str) -> anyhow::Result<()> {
     }
 }
 
-/// Idempotent pre-clean. Errors are logged, not propagated. Passes `-v` so
-/// docker compose also removes the project's volumes — e2e test isolation
-/// requires fresh state for every iteration (otherwise re-running the same
-/// stack reuses a prior data volume, which some entrypoints can't re-init).
-fn nix_run_down(stack: &str) {
-    let _ = Command::new("nix")
-        .args(["run", &format!(".#{}-down", stack), "--", "-v"])
+// ----- Port preflight -----
+
+/// Containers that publish `port` on the host, as `name (project …)`.
+fn port_holders(port: u16) -> Vec<String> {
+    let out = Command::new("docker")
+        .args([
+            "ps",
+            "--filter",
+            &format!("publish={}", port),
+            "--format",
+            "{{.Names}} (compose project {{.Label \"com.docker.compose.project\"}})",
+        ])
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status();
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
-// ----- StackGuard: 60s teardown budget, fallback to `compose down -v` (audit 6b) -----
+/// The processes that listen on `port`, as `name (pid N)`. Empty when `ss`
+/// is missing or the socket belongs to another user.
+fn process_holders(port: u16) -> Vec<String> {
+    let out = Command::new("ss")
+        .args(["-Hltnp", &format!("sport = :{}", port)])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let Ok(o) = out else { return Vec::new() };
+    let text = String::from_utf8_lossy(&o.stdout);
+    let mut holders: Vec<String> = text
+        .split("((")
+        .skip(1)
+        .filter_map(|users| {
+            let mut fields = users.split(',');
+            let name = fields.next()?.trim_matches('"');
+            let pid = fields.find_map(|f| f.strip_prefix("pid="))?;
+            Some(format!("{} (pid {})", name, pid))
+        })
+        .collect();
+    holders.sort();
+    holders.dedup();
+    holders
+}
 
+/// Every host port of `info` that a container or another process holds,
+/// with the holder when docker or `ss` knows it.
+fn held_ports(info: &StackInfo) -> Vec<(u16, Vec<String>)> {
+    let mut ports = info.host_ports.clone();
+    ports.extend(info.health_host_port);
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+        .into_iter()
+        .filter_map(|port| {
+            let mut holders = port_holders(port);
+            let bound = std::net::TcpListener::bind(("0.0.0.0", port)).is_err();
+            if bound && holders.is_empty() {
+                holders = process_holders(port);
+            }
+            (bound || !holders.is_empty()).then_some((port, holders))
+        })
+        .collect()
+}
+
+/// Fail before any build or `up` if a host port of the stack is taken,
+/// usually by a dev stack of the same name.
+fn preflight_ports(name: &str, info: &StackInfo) {
+    // NOTE: no retry. Every registry port is below 32768, outside the Linux
+    // ephemeral range, so an outgoing socket never holds one for a moment;
+    // a holder is a real listener.
+    let held = held_ports(info);
+    if held.is_empty() {
+        return;
+    }
+    let lines: Vec<String> = held
+        .iter()
+        .map(|(port, holders)| {
+            if holders.is_empty() {
+                format!("  host port {}: held by a process outside docker (run `ss -ltnp` as root to name it)", port)
+            } else {
+                format!("  host port {}: held by {}", port, holders.join(", "))
+            }
+        })
+        .collect();
+    panic!(
+        "[e2e:{name}] port preflight failed: the stack publishes host ports that are already in use.\n{}\n\
+         Stop the holder first. For a dev stack: `nix run .#{name}-down` (project {}).",
+        lines.join("\n"),
+        info.project
+    );
+}
+
+// ----- StackGuard: full teardown under TEARDOWN_BUDGET -----
+
+/// Tears down one compose project. It registers with the cleanup registry
+/// when armed, so SIGINT and SIGTERM tear the project down too.
 struct StackGuard {
     registration: Option<Registration>,
 }
@@ -414,7 +507,26 @@ pub fn run_one(name: &str) {
         info.build_list
     );
 
-    // 4b. Optional prebuild (opt-in only; default off — see plan).
+    preflight_ports(name, &info);
+
+    let keep = env_keep();
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| run_stack(name, &info, &project, keep)));
+    let leaks = leak::check(run, Some(name), keep);
+    match (outcome, leaks) {
+        (Ok(()), Ok(())) => {}
+        (Ok(()), Err(l)) => panic!("[e2e:{}] {}", name, l),
+        (Err(p), leaks) => {
+            if let Err(l) = leaks {
+                eprintln!("[e2e:{}] {}", name, l);
+            }
+            std::panic::resume_unwind(p);
+        }
+    }
+}
+
+/// Everything between the preflight and the leak check. The guard drops
+/// when this returns or unwinds, so teardown always precedes the leak check.
+fn run_stack(name: &str, info: &StackInfo, project: &str, keep: bool) {
     prebuild_once_if_enabled(name, &info.build_list);
 
     eprintln!("[e2e:{}] pre-clean: docker compose -p {} down {}", name, project, FULL_DOWN.join(" "));
@@ -433,6 +545,7 @@ pub fn run_one(name: &str) {
         compose_file: info.compose_file.clone(),
         project: project.to_string(),
         host_ports: info.host_ports.clone(),
+        port_map: info.port_map.clone(),
         health_host_port: info.health_host_port,
         deadline,
     };
@@ -442,7 +555,6 @@ pub fn run_one(name: &str) {
             "[e2e:{}] WARN: empty probe chain (no host_ports?); treating as success",
             name
         );
-        return;
     }
     for probe in probe_chain.iter() {
         eprintln!("[e2e:{}] probe: {}", name, probe.name());
